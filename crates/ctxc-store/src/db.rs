@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use ctxc_core::Paths;
 
@@ -76,7 +76,7 @@ impl Database {
         migrations::current_version(&self.conn)
     }
 
-    /// Run `work` inside a transaction, committing on success.
+    /// Run `work` inside a write transaction, committing on success.
     ///
     /// Indexing writes thousands of small rows; without a surrounding
     /// transaction each one would be its own durable commit, which is roughly
@@ -89,10 +89,7 @@ impl Database {
     where
         E: From<StoreError>,
     {
-        let transaction = self
-            .conn
-            .unchecked_transaction()
-            .map_err(|source| E::from(StoreError::from(source)))?;
+        let transaction = begin_write(&self.conn).map_err(E::from)?;
 
         let value = work()?;
 
@@ -152,6 +149,23 @@ impl Database {
     }
 }
 
+/// Begin a transaction that intends to write.
+///
+/// `BEGIN IMMEDIATE`, not SQLite's default `BEGIN DEFERRED`. A deferred
+/// transaction takes its read snapshot at the first `SELECT` and only asks for
+/// the write lock later; in WAL mode, if anyone else committed in between, that
+/// upgrade fails with `SQLITE_BUSY_SNAPSHOT` — immediately, because a stale
+/// snapshot cannot be waited out, so `busy_timeout` does not apply. CtxC writes
+/// from several processes at once (the daemon indexing while a CLI invocation
+/// records its metrics), which is exactly the case that produces it.
+///
+/// Taking the write lock up front removes the upgrade entirely: there is no
+/// snapshot to go stale, and a busy database is now something `busy_timeout`
+/// can wait for.
+pub(crate) fn begin_write(conn: &Connection) -> Result<Transaction<'_>> {
+    Transaction::new_unchecked(conn, TransactionBehavior::Immediate).map_err(StoreError::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +194,67 @@ mod tests {
             "bm25 returns negative scores, better is smaller"
         );
     }
+
+    /// The bug this guards against: a `BEGIN DEFERRED` transaction that reads
+    /// before it writes takes its snapshot at the read, and if another process
+    /// commits in between, the write fails with `SQLITE_BUSY_SNAPSHOT` — which
+    /// `busy_timeout` cannot wait out. The daemon indexes exactly like this
+    /// while CLI invocations write their metrics alongside it, so it showed up
+    /// as changed files silently never reaching the index.
+    #[test]
+    fn a_write_transaction_survives_a_concurrent_writer() {
+        let dir = std::env::temp_dir()
+            .join("ctxc-db-tests")
+            .join(format!("{}-concurrent", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("ctxc.db");
+
+        let ours = Database::open(&path).unwrap();
+        ours.connection()
+            .execute_batch("CREATE TABLE probe (value INTEGER)")
+            .unwrap();
+
+        let theirs = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let database = Database::open(&path).unwrap();
+                database.transaction::<_, StoreError>(|| {
+                    database
+                        .connection()
+                        .execute("INSERT INTO probe VALUES (2)", [])?;
+                    Ok(())
+                })
+            })
+        };
+
+        let result = ours.transaction::<_, StoreError>(|| {
+            // The read that used to fix an unupgradable snapshot in place.
+            let _: i64 = ours
+                .connection()
+                .query_row("SELECT count(*) FROM probe", [], |row| row.get(0))?;
+            // Long enough for the other writer to get in front of us.
+            std::thread::sleep(Duration::from_millis(200));
+            ours.connection()
+                .execute("INSERT INTO probe VALUES (1)", [])?;
+            Ok(())
+        });
+
+        assert!(result.is_ok(), "our write was refused: {result:?}");
+        assert!(
+            theirs.join().unwrap().is_ok(),
+            "the other writer should wait its turn, not fail"
+        );
+
+        let rows: i64 = ours
+            .connection()
+            .query_row("SELECT count(*) FROM probe", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(rows, 2, "both writes must survive");
+
+        drop(ours);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn in_memory_database_is_migrated() {
         let database = Database::open_in_memory().unwrap();

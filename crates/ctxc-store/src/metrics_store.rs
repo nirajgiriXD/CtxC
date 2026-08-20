@@ -7,7 +7,7 @@
 //! Rust means there is one definition of an hourly bucket rather than two that
 //! can drift, and it can be tested without a database.
 
-use rusqlite::{Connection, OptionalExtension, Row};
+use rusqlite::{Connection, OptionalExtension, Row, Transaction, TransactionBehavior};
 
 use ctxc_core::optimization::SavingsByStage;
 use ctxc_core::Timestamp;
@@ -30,6 +30,13 @@ impl<'a> SqliteMetricsStore<'a> {
             conn: database.connection(),
         }
     }
+}
+
+/// Begin a write transaction. `BEGIN IMMEDIATE` for the reason given on
+/// [`crate::db::begin_write`]: a deferred transaction that reads before it
+/// writes cannot upgrade its snapshot once another process has committed.
+fn begin_write(conn: &Connection) -> rusqlite::Result<Transaction<'_>> {
+    Transaction::new_unchecked(conn, TransactionBehavior::Immediate)
 }
 
 /// Turn a database failure into something the metrics subsystem can carry.
@@ -138,7 +145,7 @@ impl MetricsStore for SqliteMetricsStore<'_> {
 
         // One transaction: a flush is all-or-nothing, so a failure leaves the
         // buffer to be retried rather than half the batch written twice.
-        let transaction = self.conn.unchecked_transaction().map_err(storage)?;
+        let transaction = begin_write(self.conn).map_err(storage)?;
         {
             let mut statement = self
                 .conn
@@ -253,7 +260,7 @@ impl MetricsStore for SqliteMetricsStore<'_> {
             return Ok(());
         }
 
-        let transaction = self.conn.unchecked_transaction().map_err(storage)?;
+        let transaction = begin_write(self.conn).map_err(storage)?;
         {
             // Replace rather than add: a bucket is recomputed from its events
             // every run until it stops changing, so adding would double-count
