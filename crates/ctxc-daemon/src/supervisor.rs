@@ -339,6 +339,7 @@ impl Supervisor {
 
             let root = watched.root.clone();
             let name = watched.project.name.clone();
+            let previous_scan = watched.last_scan;
             if scan_due {
                 watched.last_scan = Some(now);
             }
@@ -379,6 +380,20 @@ impl Supervisor {
             if let Err(err) = outcome {
                 // One project failing must not stop the others.
                 tracing::warn!(project = %name, error = %err, "could not update the index");
+
+                // `take_ready` emptied the debouncer, so this batch is the only
+                // record that these paths changed. Dropping it would leave the
+                // index quietly wrong until the next safety scan, which is a
+                // long way off. Put the work back and let the next pass retry.
+                if let Some(watched) = self.watched.get_mut(&id) {
+                    for change in batch {
+                        watched.debouncer.record(change, now);
+                    }
+                    if scan_due {
+                        watched.last_scan = previous_scan;
+                    }
+                }
+
                 self.state.record(
                     MetricEvent::new(Operation::Watch, "batch")
                         .for_project(id.as_str())
