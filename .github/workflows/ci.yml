@@ -1,0 +1,79 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt --no-self-update
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The dashboard is embedded into the binary at compile time, so it has to
+      # exist before cargo runs. Rust still builds without it — the crate
+      # reports an empty asset table — but then no released binary would carry
+      # a dashboard, which is the one thing users must never have to install
+      # separately.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/ctxc-dashboard/ui/package-lock.json
+
+      - name: Build the dashboard
+        working-directory: crates/ctxc-dashboard/ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  format:
+    name: rustfmt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup toolchain install stable --profile minimal --component rustfmt --no-self-update
+      - run: cargo fmt --all --check
+
+  dashboard:
+    name: dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/ctxc-dashboard/ui/package-lock.json
+      - working-directory: crates/ctxc-dashboard/ui
+        run: npm ci
+      - name: Type-check
+        working-directory: crates/ctxc-dashboard/ui
+        run: npm run typecheck
+      - name: Build
+        working-directory: crates/ctxc-dashboard/ui
+        run: npm run build
