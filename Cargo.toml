@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/ctxc-core",
+    "crates/ctxc-context",
     "crates/ctxc-graph",
     "crates/ctxc-dashboard",
     "crates/ctxc-semantic",
@@ -16,6 +17,7 @@ repository = "https://github.com/nirajgirixd/ctxc"
 authors = ["CtxC contributors"]
 
 [workspace.dependencies]
+ctxc-context = { path = "crates/ctxc-context", version = "0.1.0" }
 ctxc-core = { path = "crates/ctxc-core", version = "0.1.0" }
 ctxc-graph = { path = "crates/ctxc-graph", version = "0.1.0" }
 ctxc-dashboard = { path = "crates/ctxc-dashboard", version = "0.1.0" }
