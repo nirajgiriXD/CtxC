@@ -8,6 +8,7 @@ members = [
     "crates/ctxc-dashboard",
     "crates/ctxc-integrations",
     "crates/ctxc-semantic",
+    "crates/ctxc-retrieval",
     "crates/ctxc-parser",
     "crates/ctxc-project",
     "crates/ctxc-store",
@@ -31,6 +32,7 @@ ctxc-integrations = { path = "crates/ctxc-integrations", version = "0.1.0" }
 ctxc-semantic = { path = "crates/ctxc-semantic", version = "0.1.0" }
 ctxc-parser = { path = "crates/ctxc-parser", version = "0.1.0" }
 ctxc-project = { path = "crates/ctxc-project", version = "0.1.0" }
+ctxc-retrieval = { path = "crates/ctxc-retrieval", version = "0.1.0" }
 ctxc-store = { path = "crates/ctxc-store", version = "0.1.0" }
 
 anyhow = "1"

@@ -1,0 +1,17 @@
+[package]
+name = "ctxc-retrieval"
+description = "Hybrid context retrieval and ranking for CtxC"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ctxc-core.workspace = true
+ctxc-graph.workspace = true
+ctxc-store.workspace = true
+serde = { workspace = true }
+thiserror.workspace = true
+tracing.workspace = true
