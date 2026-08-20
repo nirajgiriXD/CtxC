@@ -6,6 +6,7 @@ members = [
     "crates/ctxc-graph",
     "crates/ctxc-metrics",
     "crates/ctxc-dashboard",
+    "crates/ctxc-integrations",
     "crates/ctxc-semantic",
     "crates/ctxc-project",
 ]
@@ -24,6 +25,7 @@ ctxc-core = { path = "crates/ctxc-core", version = "0.1.0" }
 ctxc-graph = { path = "crates/ctxc-graph", version = "0.1.0" }
 ctxc-metrics = { path = "crates/ctxc-metrics", version = "0.1.0" }
 ctxc-dashboard = { path = "crates/ctxc-dashboard", version = "0.1.0" }
+ctxc-integrations = { path = "crates/ctxc-integrations", version = "0.1.0" }
 ctxc-semantic = { path = "crates/ctxc-semantic", version = "0.1.0" }
 ctxc-project = { path = "crates/ctxc-project", version = "0.1.0" }
 
