@@ -17,6 +17,7 @@ pub mod project;
 pub mod search;
 pub mod similar;
 pub mod status;
+pub mod update;
 pub mod version;
 
 use std::io::Write;
@@ -88,6 +89,7 @@ pub fn dispatch<W: Write>(command: &Command, app: &App, printer: &mut Printer<W>
         Command::Metrics { options } => metrics::run(app, options, printer),
         Command::Dashboard { no_open } => dashboard::run(app, !no_open, printer),
         Command::Version => version::run(printer),
+        Command::Update { options } => update::run(app, options, printer),
 
         Command::Status => status::run(app, printer),
         Command::Config { action } => config::run(app, action.as_ref(), printer),

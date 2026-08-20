@@ -359,12 +359,13 @@ and are overridden by command-line flags. Booleans accept `true`/`false`,
 | `CTXC_DASHBOARD_PORT` | `dashboard.port` |
 | `CTXC_TELEMETRY_ENABLED` | `telemetry.enabled` |
 
-Two variables are not configuration keys:
+Three variables are not configuration keys:
 
 | Variable | Effect |
 |----------|--------|
 | `CTXC_HOME` | Relocates the config, data, and cache directories to one place. Wins over every platform convention. |
 | `CTXC_LOG` | Log filter, in `tracing` syntax. Falls back to `RUST_LOG`. Overrides `--verbose` and `--debug`. |
+| `CTXC_SOURCE` | The source checkout [`ctxc update`](#ctxc-update) builds from. Overridden by `--source`. |
 
 Standard platform variables also participate in path resolution: `APPDATA`
 and `LOCALAPPDATA` on Windows, `HOME` on macOS, and `HOME`,
@@ -457,6 +458,7 @@ ctxc optimize build.log > optimized.txt        # only the content is redirected
 | [`mcp`](#ctxc-mcp) | Serve CtxC over the Model Context Protocol |
 | [`status`](#ctxc-status) | Show the state of this installation |
 | [`version`](#ctxc-version) | Print version and build information |
+| [`update`](#ctxc-update) | Fetch the latest source, build it, replace this binary |
 | [`config`](#ctxc-config) | Inspect and create configuration |
 
 ---
@@ -1180,6 +1182,70 @@ schema:   7
 
 ---
 
+### `ctxc update`
+
+Update CtxC in place: fast-forward a source checkout to the latest `main`,
+build the release binary, and put it where the running one is.
+
+```text
+ctxc update [--check] [--source <PATH>] [--branch <BRANCH>] [--force]
+            [--no-dashboard]
+```
+
+| Flag | Effect |
+|------|--------|
+| `--check` | Report what an update would do. Nothing is built or replaced. |
+| `--source <PATH>` | The checkout to build from. Remembered after the first time. |
+| `--branch <BRANCH>` | The branch to follow. Defaults to `main`. |
+| `--force` | Update even when the checkout is dirty, is on another branch, or has nothing new. |
+| `--no-dashboard` | Skip rebuilding the dashboard's web interface. |
+
+```bash
+ctxc update --check
+ctxc update
+```
+
+```text
+Updated CtxC to 0.1.0.
+
+Source:     /home/you/src/ctxc
+Branch:     origin/main
+Commit:     e880c3a -> 1d4e9ab  (12 commits)
+Dashboard:  web UI rebuilt
+Installed:  /usr/local/bin/ctxc
+Daemon:     restarted
+```
+
+**Finding the source.** The checkout is looked for in this order: `--source`,
+then `$CTXC_SOURCE`, then the path a previous update recorded, then the
+directories above the running binary and above the current one. So a binary
+still sitting in its own `target/release` needs no arguments at all, and
+anything else needs `--source` exactly once:
+
+```bash
+ctxc update --source ~/src/ctxc
+```
+
+**What it refuses to do.** An update stops rather than guess when the checkout
+has uncommitted changes, when it is on a branch other than the one being
+followed, or when the running binary is a `target/debug` build. `--force`
+overrides the first two; the third means you are working on CtxC, and should
+run `cargo build --release` yourself.
+
+**The dashboard.** An update keeps what you had. If the running binary carries
+the dashboard, the web UI is rebuilt with `npm ci && npm run build` so the new
+one carries it too — that needs npm, and the update says so if npm is missing.
+If your binary has no dashboard, none is added.
+
+**Replacing a running program.** The binary being replaced is the one running
+the update, so it is renamed aside first — every platform allows that even
+while the file is open. Windows cannot delete it until the process exits, so a
+`ctxc.exe.ctxc-old` may sit next to the new binary until the next update
+clears it. A daemon that was running is stopped just before the swap and
+started again afterwards.
+
+---
+
 ### `ctxc config`
 
 Inspect and create configuration.
@@ -1507,6 +1573,26 @@ A single context is capped at 16 MB. Larger material is a job for
 
 ## Updating
 
+CtxC updates itself. See [`ctxc update`](#ctxc-update) for the full flag list.
+
+```bash
+ctxc update --check     # what would change
+ctxc update             # pull main, build it, replace this binary
+```
+
+The first run needs to be told where the source is, unless the binary is
+still in the checkout it was built in:
+
+```bash
+ctxc update --source ~/src/ctxc
+```
+
+The path is remembered, so later updates work from anywhere. A running daemon
+is stopped for the swap and started again; the dashboard is rebuilt if the
+binary had one.
+
+To do it by hand instead:
+
 ```bash
 cd ctxc
 git pull
@@ -1514,15 +1600,15 @@ cd crates/ctxc-dashboard/ui && npm ci && npm run build && cd ../../..
 cargo build --release
 ```
 
-Stop a running daemon before replacing the binary:
+Stop a running daemon before replacing the binary yourself:
 
 ```bash
 ctxc stop
 ```
 
-The database is migrated automatically the first time the new binary opens
-it. Compare `ctxc version` (the schema this build wants) with `ctxc status`
-(the schema you have) if you want to confirm a migration ran.
+Either way, the database is migrated automatically the first time the new
+binary opens it. Compare `ctxc version` (the schema this build wants) with
+`ctxc status` (the schema you have) if you want to confirm a migration ran.
 
 ---
 

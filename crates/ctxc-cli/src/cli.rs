@@ -201,6 +201,12 @@ pub enum Command {
     /// Print version and build information.
     Version,
 
+    /// Update CtxC: fetch the latest source, build it, replace this binary.
+    Update {
+        #[command(flatten)]
+        options: UpdateOptions,
+    },
+
     /// Show the state of this CtxC installation.
     Status,
 
@@ -250,6 +256,34 @@ pub enum IntegrationAction {
         #[arg(long)]
         detected: bool,
     },
+}
+
+/// Options for `ctxc update`.
+#[derive(Debug, clap::Args)]
+pub struct UpdateOptions {
+    /// Report what an update would do, without changing anything.
+    #[arg(long)]
+    pub check: bool,
+
+    /// The CtxC source checkout to build from.
+    ///
+    /// Found on its own when the running binary sits inside a checkout. A path
+    /// given here is remembered, so later updates work from anywhere.
+    #[arg(long, value_name = "PATH")]
+    pub source: Option<PathBuf>,
+
+    /// The branch to update from.
+    #[arg(long, default_value = "main", value_name = "BRANCH")]
+    pub branch: String,
+
+    /// Update even when the checkout is dirty, is on another branch, or has
+    /// nothing new.
+    #[arg(long)]
+    pub force: bool,
+
+    /// Do not rebuild the dashboard's web interface.
+    #[arg(long)]
+    pub no_dashboard: bool,
 }
 
 /// Shared options for `ctxc metrics`.
@@ -482,6 +516,41 @@ mod tests {
             Cli::try_parse_from(["ctxc", "project", "add"]).is_err(),
             "adding a project needs a path"
         );
+    }
+
+    #[test]
+    fn update_follows_main_unless_told_otherwise() {
+        let cli = Cli::try_parse_from(["ctxc", "update"]).unwrap();
+        match cli.command {
+            Command::Update { options } => {
+                assert_eq!(options.branch, "main");
+                assert!(!options.check);
+                assert!(!options.force);
+                assert!(options.source.is_none());
+            }
+            other => panic!("parsed as {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from([
+            "ctxc",
+            "update",
+            "--check",
+            "--branch",
+            "next",
+            "--source",
+            "/src/ctxc",
+            "--no-dashboard",
+        ])
+        .unwrap();
+        match cli.command {
+            Command::Update { options } => {
+                assert!(options.check);
+                assert_eq!(options.branch, "next");
+                assert_eq!(options.source, Some(PathBuf::from("/src/ctxc")));
+                assert!(options.no_dashboard);
+            }
+            other => panic!("parsed as {other:?}"),
+        }
     }
 
     #[test]

@@ -295,7 +295,7 @@ Use:
 
 The CLI should expose a stable command structure, and must never advertise a command that does not work: the command tree is the contract, not a wish list.
 
-The tree is organised around what a user is doing rather than around which crate does it. Content commands (`analyze`, `optimize`, `compile`, `capture`, `retrieve`) act on one piece of material. Project commands (`index`, `graph`, `search`, `similar`, `project`) act on a registered or indexed directory. Lifecycle commands (`start`, `stop`, `daemon`) manage the runtime. `ctxc start` and `ctxc stop` are the user-facing aliases for daemon lifecycle management; `ctxc daemon` remains available for lower-level control and diagnostics.
+The tree is organised around what a user is doing rather than around which crate does it. Content commands (`analyze`, `optimize`, `compile`, `capture`, `retrieve`) act on one piece of material. Project commands (`index`, `graph`, `search`, `similar`, `project`) act on a registered or indexed directory. Lifecycle commands (`start`, `stop`, `daemon`) manage the runtime. `ctxc start` and `ctxc stop` are the user-facing aliases for daemon lifecycle management; `ctxc daemon` remains available for lower-level control and diagnostics. Installation commands (`version`, `status`, `config`, `update`) describe and look after CtxC itself.
 
 The command surface as it exists today — every command, argument, and flag — is documented in [USAGE.md](USAGE.md#command-reference).
 
