@@ -1,0 +1,18 @@
+[package]
+name = "ctxc-core"
+description = "Foundational types, errors, configuration and platform abstraction for CtxC"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+blake3.workspace = true
+serde = { workspace = true }
+thiserror.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
