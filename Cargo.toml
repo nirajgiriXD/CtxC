@@ -12,6 +12,7 @@ members = [
     "crates/ctxc-parser",
     "crates/ctxc-project",
     "crates/ctxc-api",
+    "crates/ctxc-daemon",
     "crates/ctxc-watcher",
     "crates/ctxc-optimizer",
     "crates/ctxc-engine",
@@ -29,6 +30,7 @@ authors = ["CtxC contributors"]
 [workspace.dependencies]
 ctxc-api = { path = "crates/ctxc-api", version = "0.1.0" }
 ctxc-context = { path = "crates/ctxc-context", version = "0.1.0" }
+ctxc-daemon = { path = "crates/ctxc-daemon", version = "0.1.0" }
 ctxc-core = { path = "crates/ctxc-core", version = "0.1.0" }
 ctxc-engine = { path = "crates/ctxc-engine", version = "0.1.0" }
 ctxc-graph = { path = "crates/ctxc-graph", version = "0.1.0" }
