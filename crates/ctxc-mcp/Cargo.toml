@@ -1,0 +1,21 @@
+[package]
+name = "ctxc-mcp"
+description = "Model Context Protocol server for CtxC"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ctxc-context.workspace = true
+ctxc-core.workspace = true
+ctxc-engine.workspace = true
+ctxc-project.workspace = true
+ctxc-retrieval.workspace = true
+ctxc-store.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
