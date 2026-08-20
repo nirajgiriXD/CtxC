@@ -229,8 +229,8 @@ CtxC supports two modes of operation. Both use the same engine.
 **One-shot** — stateless, scriptable, no daemon required:
 
 ```bash
-ctxc optimize ./project
-git status | ctxc optimize
+ctxc optimize build.log
+git status | ctxc optimize --from "git status"
 ```
 
 Useful for scripts, CI, pipes, debugging, and first-time usage.
@@ -293,37 +293,11 @@ Use:
 
 - clap
 
-The CLI should expose a stable command structure.
+The CLI should expose a stable command structure, and must never advertise a command that does not work: the command tree is the contract, not a wish list.
 
-Initial structure:
+The tree is organised around what a user is doing rather than around which crate does it. Content commands (`analyze`, `optimize`, `compile`, `capture`, `retrieve`) act on one piece of material. Project commands (`index`, `graph`, `search`, `similar`, `project`) act on a registered or indexed directory. Lifecycle commands (`start`, `stop`, `daemon`) manage the runtime. `ctxc start` and `ctxc stop` are the user-facing aliases for daemon lifecycle management; `ctxc daemon` remains available for lower-level control and diagnostics.
 
-```text
-ctxc
-├── analyze
-├── optimize
-├── compile
-├── capture
-├── retrieve
-├── index
-├── project
-│   ├── add
-│   ├── remove
-│   ├── list
-│   ├── status
-│   ├── pause
-│   ├── resume
-│   └── open
-├── start
-├── stop
-├── daemon
-├── dashboard
-├── metrics
-├── config
-├── status
-└── version
-```
-
-`ctxc start` and `ctxc stop` are the user-facing aliases for daemon lifecycle management. `ctxc daemon` remains available for lower-level control and diagnostics.
+The command surface as it exists today — every command, argument, and flag — is documented in [USAGE.md](USAGE.md#command-reference).
 
 ### HTTP
 
@@ -1121,20 +1095,11 @@ When the daemon is not running, one-shot commands must still work by constructin
 
 ### 24.1 Status
 
-```bash
-ctxc status
-```
+The daemon must be inspectable at any time without attaching a debugger or reading a log. A single status query answers: is a daemon running, which projects it is looking after, how many are being watched versus scanned, how much has been indexed, and what has been saved cumulatively.
 
-```text
-CtxC
+Status must always answer. A daemon that cannot be reached is reported as not running rather than as an error — the question "is anything running?" must never itself fail.
 
-Daemon:       ● Running
-Projects:     4
-Watching:     3
-Indexed:      4
-Operations:   12,482
-Tokens saved: 52.5M
-```
+See [USAGE.md](USAGE.md#ctxc-status) for the command and its output.
 
 ### 24.2 Lifecycle
 
@@ -1153,32 +1118,7 @@ Auto-start must be configurable and must be disabled in CI environments.
 
 ## 25. Project Registry
 
-CtxC manages a registry of projects rather than requiring a path on every invocation.
-
-```text
-ctxc project
-├── add <path>
-├── remove <path>
-├── list
-├── status
-├── pause
-├── resume
-└── open
-```
-
-Example:
-
-```bash
-ctxc project add ~/Projects/acme-web
-ctxc project list
-```
-
-```text
-PROJECT          STATUS      WATCHING    INDEX
-acme-web         active      yes         ready
-acme-api         active      yes         ready
-acme-docs        paused      no          ready
-```
+CtxC manages a registry of projects rather than requiring a path on every invocation. The registry is what turns CtxC from a command you run into something that knows about your work.
 
 Each registered project exposes:
 
@@ -1197,9 +1137,17 @@ Each registered project exposes:
 
 The registry is the shared source of truth for the CLI, the watcher, the metrics subsystem, and the dashboard.
 
-Project identity should be stable across renames where possible. Prefer a generated identifier stored in the project's own configuration over deriving identity from the path alone.
+Three properties matter architecturally:
 
-Removing a project from the registry must not delete the project's files. It should only remove CtxC's tracking, and should ask whether to discard the associated index and metrics.
+- **Stable identity.** Project identity should survive a rename or a move, so an index, its metrics, and its memory are not orphaned by a relocated directory. Prefer a generated identifier stored in the project's own configuration over deriving identity from the path alone.
+- **Status without loss.** Pausing a project takes it out of the watch set without discarding what CtxC already knows about it.
+- **Detection as a hint.** Detected characteristics inform ignore defaults, parser selection, and ranking heuristics, but never gate behavior, and must always be re-runnable.
+
+Registry operations write to the database directly rather than through the daemon, so they behave identically whether or not one is running; the daemon picks up changes on its next pass.
+
+Removing a project from the registry must not delete the project's files. It removes CtxC's tracking and nothing else.
+
+See [USAGE.md](USAGE.md#ctxc-project) for the commands.
 
 ---
 
@@ -1345,43 +1293,18 @@ Background work must be low priority by design. CtxC running in the background m
 
 ### 28.1 Project Configuration
 
-Each project may carry its own CtxC configuration.
+A project may carry its own CtxC configuration in its root, so that a repository's settings travel with it rather than living in one developer's machine-wide file.
 
-```toml
-[project]
-name = "acme-web"
+Two properties make this worth having:
 
-[watch]
-enabled = true
+- **Identity that survives a move.** A project that declares its own id keeps its history — index, metrics, memory — across a rename or a relocation. Without it, identity is derived from the path, and a moved directory becomes a different project.
+- **Repository-scoped behavior.** Watching, indexing, budgets, and ignore rules are properties of the code, not of the person checking it out.
 
-[index]
-enabled = true
+CtxC must never write this file. Registering a project is an operation on CtxC's own state; modifying the project being registered would be a surprising side effect.
 
-[optimization]
-enabled = true
+The file participates in the layered configuration chain described in section 33, sitting above the global file and below the environment.
 
-[optimization.code]
-enabled = true
-
-[optimization.logs]
-enabled = true
-
-[optimization.json]
-enabled = true
-
-[budget]
-default = 32000
-
-[ignore]
-patterns = [
-    "node_modules/**",
-    ".next/**",
-    "dist/**",
-    "build/**"
-]
-```
-
-This gives each repository its own CtxC behavior while remaining subject to the layered configuration rules.
+The file's location, accepted keys, and which of them this build acts on are documented in [USAGE.md](USAGE.md#project-configuration).
 
 ### 28.2 Project Detection
 
@@ -1533,13 +1456,7 @@ The dashboard is an optional local web UI backed by the daemon.
     SQLite        SQLite        SQLite
 ```
 
-Launch:
-
-```bash
-ctxc dashboard
-```
-
-This opens the local dashboard in the user's default browser.
+It is served by the daemon on the daemon's own port, so there is no second server to run and no second port to authorize. Opening it is a matter of building a URL that carries the access token and handing it to a browser; see [USAGE.md](USAGE.md#ctxc-dashboard).
 
 ### 30.1 Global Overview
 
@@ -1712,53 +1629,16 @@ Keeping the dashboard behind the HTTP API prevents it from contaminating the cor
 
 ## 31. HTTP API
 
-The daemon should expose a local HTTP API.
+The daemon exposes a local HTTP API. It is the daemon's only remote surface, and everything that talks to a running CtxC — the dashboard, the CLI's liveness checks, third-party tooling — goes through it.
 
-Context:
-
-```text
-POST /v1/context/analyze
-POST /v1/context/optimize
-POST /v1/context/compile
-POST /v1/context/search
-GET  /v1/context/:id
-POST /v1/context/:id/retrieve
-```
-
-Projects:
+The surface is organised into five groups:
 
 ```text
-GET    /v1/projects
-POST   /v1/projects
-GET    /v1/projects/:id
-DELETE /v1/projects/:id
-POST   /v1/projects/:id/pause
-POST   /v1/projects/:id/resume
-POST   /v1/projects/:id/reindex
-GET    /v1/projects/:id/status
-```
-
-Metrics:
-
-```text
-GET /v1/metrics/summary
-GET /v1/metrics/projects/:id
-GET /v1/metrics/timeseries
-GET /v1/metrics/breakdown
-GET /v1/activity
-```
-
-System:
-
-```text
-GET /v1/status
-GET /v1/health
-```
-
-Real-time:
-
-```text
-WS /v1/events
+System      health, status, shutdown
+Projects    list, add, show, remove, pause, resume, reindex
+Context     search, optimize
+Metrics     summary, per project, timeseries, breakdown, activity
+Real-time   event stream
 ```
 
 The event stream should publish:
@@ -1770,11 +1650,15 @@ The event stream should publish:
 - project status changes
 - errors and degradations
 
-Bind locally by default.
+Constraints:
 
-Do not expose the daemon publicly unless explicitly configured.
+- The API is versioned under `/v1`. A breaking change means a new version, not a changed response.
+- Bind locally by default. Do not expose the daemon publicly unless explicitly configured.
+- Every route except the health check requires the access token the daemon generates at startup and publishes in its lockfile. Health is exempt because something has to be able to ask whether a daemon is there before it can read anything else.
+- The dashboard is a normal client of this API and receives no special privileges.
+- The HTTP layer is isolated from the core engine: the core must not depend on HTTP, and no route may contain logic that the CLI cannot reach by another path.
 
-The API is versioned. The dashboard is a normal client of this API and receives no special privileges.
+The exact routes this build serves, and how to authenticate against them, are documented in [USAGE.md](USAGE.md#http-api).
 
 ---
 
@@ -1807,50 +1691,7 @@ Provider adapters should be separate.
 
 ## 33. Configuration
 
-Example:
-
-Global configuration:
-
-```toml
-[core]
-mode = "local"
-
-[optimization]
-enabled = true
-target_reduction = 0.5
-
-[retrieval]
-enabled = true
-
-[graph]
-enabled = true
-
-[storage]
-path = "auto"
-
-[daemon]
-enabled = true
-auto_start = true
-bind = "127.0.0.1"
-port = 7717
-
-[watch]
-enabled = true
-debounce_ms = 300
-
-[metrics]
-enabled = true
-raw_retention_days = 30
-
-[dashboard]
-enabled = true
-port = 7718
-
-[telemetry]
-enabled = false
-```
-
-Configuration should be layered:
+Configuration is layered, and every layer is a partial document: each key is optional, and layers merge key by key rather than wholesale. A file that sets one value must not reset the rest.
 
 ```text
 Built-in defaults
@@ -1866,9 +1707,17 @@ CLI arguments
 
 Higher layers override lower layers.
 
-Project configuration (see section 28) participates in this chain. A project may disable watching, indexing, or specific optimizers regardless of global settings.
+The format is TOML, and files reject unknown keys. A typo must become an actionable error naming the offending key, never a setting that silently does nothing.
+
+Validation happens once, at load time, at the point where the message can still name the key that is wrong. Components downstream receive a configuration that is already known to be coherent.
+
+The default location must be platform appropriate; Linux-specific paths must not be hardcoded. See [section 36](#36-cross-platform-abstraction) for how directories are resolved.
+
+Project configuration (see section 28) participates in this chain. A project may carry its own identity and settings so that they travel with the repository.
 
 Note that `[telemetry]` refers to external transmission and remains disabled by default. `[metrics]` is purely local and is unrelated to it.
+
+The full set of keys, their defaults, their environment-variable equivalents, and the file locations are documented in [USAGE.md](USAGE.md#configuration).
 
 ---
 
@@ -2028,35 +1877,23 @@ Recommended:
 - tracing
 - tracing-subscriber
 
-Support:
+Verbosity is selectable on the command line and overridable from the environment, so a filter can be set without changing what a script passes.
 
-```bash
-ctxc --verbose
-ctxc --debug
-```
+Diagnostic output goes to stderr, always. stdout belongs to command results, which may be machine readable, and a single stray log line on it corrupts a consumer's parse.
 
-Do not print logs to stdout when stdout is being used as machine-readable output.
-
-Use stderr for diagnostic output.
+Raising verbosity must show CtxC's own reasoning rather than a wall of dependency output: third-party crates stay quiet unless asked for by name.
 
 ---
 
 ## 39. Output Formats
 
-CLI commands should support:
+Every command should render in four formats: `human`, `json`, `jsonl`, and `quiet`.
 
-- human
-- json
-- jsonl
-- quiet
+Both renderings must come from one value. A command produces a single serializable result that knows how to render itself for a person; human and machine output therefore cannot drift apart as the command changes.
 
-Example:
+Commands whose product is content rather than a report — optimization and compilation — split their streams: the content goes to stdout so it can be piped, and the summary goes to stderr. This keeps a pipeline correct in every format.
 
-```bash
-ctxc analyze . --format json
-```
-
-This makes CtxC scriptable.
+This makes CtxC scriptable. See [USAGE.md](USAGE.md#output-formats) for how each format behaves.
 
 ---
 
@@ -2571,7 +2408,7 @@ ctxc optimize < input.txt
 and:
 
 ```bash
-ctxc optimize ./project
+ctxc capture -- cargo test
 ```
 
 produce:

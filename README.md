@@ -21,6 +21,11 @@ Raw Context
 AI-Ready Context
 ```
 
+**Documentation**
+
+- **[USAGE.md](USAGE.md)** — install, configure, and operate CtxC
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — how CtxC works internally
+
 ---
 
 ## Why CtxC?
@@ -264,6 +269,8 @@ CtxC is designed as a modular context processing system.
                 LLM
 ```
 
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design.
+
 ---
 
 ## Design Principles
@@ -319,36 +326,41 @@ Designed for:
 
 ---
 
-## Installation
-
-> Coming soon
-
----
-
 ## Quick Start
 
+CtxC is a single native binary with no runtime dependency. Build it from source:
+
 ```bash
-# Analyze context
-ctxc analyze ./project
-
-# Optimize context
-ctxc optimize ./project
-
-# Generate AI-ready context
-ctxc compile ./project
+cargo build --release
 ```
+
+Then shrink noisy output, index a project, and pull out only what a task needs:
+
+```bash
+# Optimize what a command printed
+ctxc capture -- cargo test
+
+# Index a project, then assemble task-scoped context
+ctxc index .
+ctxc search "why does the session expire early" --compile --budget 6000
+```
+
+Full instructions — prerequisites, installation, configuration, every command, workflows, troubleshooting — are in **[USAGE.md](USAGE.md)**.
 
 ---
 
 ## Integrations
 
-CtxC aims to integrate with:
+CtxC ships adapters that tell coding agents it exists, and an MCP server that hands them its tools directly:
 
-- AI coding assistants
-- IDE extensions
-- Agent frameworks
-- LLM applications
-- Developer workflows
+- Claude Code
+- Codex, OpenCode, Aider, and other `AGENTS.md` readers
+- GitHub Copilot
+- Gemini CLI
+- Cursor
+- Cline
+
+See [USAGE.md](USAGE.md#ctxc-integrations) for how to install them.
 
 ---
 
