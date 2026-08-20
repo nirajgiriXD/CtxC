@@ -11,6 +11,7 @@ members = [
     "crates/ctxc-retrieval",
     "crates/ctxc-parser",
     "crates/ctxc-project",
+    "crates/ctxc-watcher",
     "crates/ctxc-optimizer",
     "crates/ctxc-store",
 ]
@@ -36,6 +37,7 @@ ctxc-project = { path = "crates/ctxc-project", version = "0.1.0" }
 ctxc-retrieval = { path = "crates/ctxc-retrieval", version = "0.1.0" }
 ctxc-optimizer = { path = "crates/ctxc-optimizer", version = "0.1.0" }
 ctxc-store = { path = "crates/ctxc-store", version = "0.1.0" }
+ctxc-watcher = { path = "crates/ctxc-watcher", version = "0.1.0" }
 
 anyhow = "1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws"] }

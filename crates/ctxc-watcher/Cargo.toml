@@ -1,0 +1,17 @@
+[package]
+name = "ctxc-watcher"
+description = "Filesystem watching and change debouncing for CtxC"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ctxc-context.workspace = true
+ctxc-core.workspace = true
+notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
+serde = { workspace = true }
+thiserror.workspace = true
+tracing.workspace = true
