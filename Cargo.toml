@@ -11,6 +11,7 @@ members = [
     "crates/ctxc-retrieval",
     "crates/ctxc-parser",
     "crates/ctxc-project",
+    "crates/ctxc-api",
     "crates/ctxc-watcher",
     "crates/ctxc-optimizer",
     "crates/ctxc-engine",
@@ -26,6 +27,7 @@ repository = "https://github.com/nirajgirixd/ctxc"
 authors = ["CtxC contributors"]
 
 [workspace.dependencies]
+ctxc-api = { path = "crates/ctxc-api", version = "0.1.0" }
 ctxc-context = { path = "crates/ctxc-context", version = "0.1.0" }
 ctxc-core = { path = "crates/ctxc-core", version = "0.1.0" }
 ctxc-engine = { path = "crates/ctxc-engine", version = "0.1.0" }

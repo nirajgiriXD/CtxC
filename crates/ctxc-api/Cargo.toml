@@ -1,0 +1,28 @@
+[package]
+name = "ctxc-api"
+description = "Local HTTP API for the CtxC daemon"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+axum.workspace = true
+ctxc-context.workspace = true
+ctxc-core.workspace = true
+ctxc-dashboard.workspace = true
+ctxc-engine.workspace = true
+ctxc-metrics.workspace = true
+ctxc-project.workspace = true
+ctxc-retrieval.workspace = true
+ctxc-store.workspace = true
+serde = { workspace = true }
+serde_json.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true }
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
