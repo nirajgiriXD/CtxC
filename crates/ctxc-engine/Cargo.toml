@@ -1,0 +1,23 @@
+[package]
+name = "ctxc-engine"
+description = "Optimization pipeline orchestration for CtxC"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ctxc-context.workspace = true
+ctxc-core.workspace = true
+ctxc-graph.workspace = true
+ctxc-optimizer.workspace = true
+ctxc-parser.workspace = true
+ctxc-retrieval.workspace = true
+ctxc-semantic.workspace = true
+ctxc-store.workspace = true
+ctxc-watcher.workspace = true
+serde = { workspace = true }
+thiserror.workspace = true
+tracing.workspace = true
