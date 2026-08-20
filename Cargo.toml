@@ -10,6 +10,7 @@ members = [
     "crates/ctxc-semantic",
     "crates/ctxc-parser",
     "crates/ctxc-project",
+    "crates/ctxc-store",
 ]
 
 [workspace.package]
@@ -30,6 +31,7 @@ ctxc-integrations = { path = "crates/ctxc-integrations", version = "0.1.0" }
 ctxc-semantic = { path = "crates/ctxc-semantic", version = "0.1.0" }
 ctxc-parser = { path = "crates/ctxc-parser", version = "0.1.0" }
 ctxc-project = { path = "crates/ctxc-project", version = "0.1.0" }
+ctxc-store = { path = "crates/ctxc-store", version = "0.1.0" }
 
 anyhow = "1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws"] }
