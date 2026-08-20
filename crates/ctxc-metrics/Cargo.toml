@@ -1,0 +1,18 @@
+[package]
+name = "ctxc-metrics"
+description = "Local metrics collection, rollup and reporting for CtxC"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+ctxc-core.workspace = true
+serde = { workspace = true }
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true
