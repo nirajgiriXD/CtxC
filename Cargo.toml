@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/ctxc-core",
+    "crates/ctxc-dashboard",
 ]
 
 [workspace.package]
@@ -14,6 +15,7 @@ authors = ["CtxC contributors"]
 
 [workspace.dependencies]
 ctxc-core = { path = "crates/ctxc-core", version = "0.1.0" }
+ctxc-dashboard = { path = "crates/ctxc-dashboard", version = "0.1.0" }
 
 anyhow = "1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws"] }

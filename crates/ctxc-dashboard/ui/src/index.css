@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/* The dashboard ships inside the binary and must never fetch anything, so
+   there are no webfonts here — only the stacks every platform already has. */
+@theme {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono",
+    "Roboto Mono", Menlo, Consolas, monospace;
+}
+
+/* shadcn/ui's token names, so components read the same way they do upstream.
+   Dark is the default: this is a developer tool that lives next to a terminal. */
+@layer base {
+  :root {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.19 0.005 285);
+    --card-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.26 0.006 285);
+    --muted-foreground: oklch(0.68 0.01 285);
+    --border: oklch(0.28 0.006 285);
+    --primary: oklch(0.72 0.16 250);
+    --primary-foreground: oklch(0.145 0 0);
+    --accent: oklch(0.26 0.006 285);
+    --accent-foreground: oklch(0.985 0 0);
+    --destructive: oklch(0.64 0.2 25);
+    --warning: oklch(0.78 0.15 75);
+    --success: oklch(0.72 0.15 155);
+    --radius: 0.65rem;
+  }
+
+  /* A light desktop still gets a readable dashboard. */
+  @media (prefers-color-scheme: light) {
+    :root:not(.dark) {
+      --background: oklch(0.99 0 0);
+      --foreground: oklch(0.18 0 0);
+      --card: oklch(1 0 0);
+      --card-foreground: oklch(0.18 0 0);
+      --muted: oklch(0.96 0.003 285);
+      --muted-foreground: oklch(0.5 0.01 285);
+      --border: oklch(0.9 0.004 285);
+      --primary: oklch(0.55 0.17 255);
+      --primary-foreground: oklch(0.99 0 0);
+      --accent: oklch(0.96 0.003 285);
+      --accent-foreground: oklch(0.18 0 0);
+    }
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-warning: var(--warning);
+  --color-success: var(--success);
+  --radius-lg: var(--radius);
+  --radius-md: calc(var(--radius) - 0.2rem);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Numbers that change every second must not make the layout jump. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

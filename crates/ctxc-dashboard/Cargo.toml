@@ -1,0 +1,16 @@
+[package]
+name = "ctxc-dashboard"
+description = "The CtxC dashboard, embedded as static assets"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+# The generated asset table and everything it embeds; without this a published
+# crate would build but serve nothing.
+include = ["src/**/*", "ui/dist/**/*", "build.rs", "README.md"]
+
+[dependencies]
+
+[build-dependencies]
