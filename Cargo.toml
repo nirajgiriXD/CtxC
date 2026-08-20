@@ -18,6 +18,7 @@ members = [
     "crates/ctxc-optimizer",
     "crates/ctxc-engine",
     "crates/ctxc-store",
+    "crates/ctxc-cli",
 ]
 
 [workspace.package]
