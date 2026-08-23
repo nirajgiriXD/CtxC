@@ -899,7 +899,7 @@ the HTTP API, and serves the dashboard.
 
 ```text
 ctxc start [--detach]
-ctxc stop
+ctxc stop [--all]
 ctxc daemon [status|start|stop]
 ```
 
@@ -907,10 +907,11 @@ ctxc daemon [status|start|stop]
 |---------|--------|
 | `ctxc start` | Run the daemon in this terminal (foreground). |
 | `ctxc start --detach` | Start it in the background and report its pid and port. |
-| `ctxc stop` | Stop the running daemon, or clear a lockfile left behind. |
+| `ctxc stop` | Stop the daemon **and every other CtxC process**, or clear a lockfile left behind. |
+| `ctxc stop --all` | Also stop CtxC processes belonging to other data directories. |
 | `ctxc daemon status` | Report what the daemon is doing. Also the default when no subcommand is given. |
 | `ctxc daemon start` | Same as `ctxc start --detach`. |
-| `ctxc daemon stop` | Same as `ctxc stop`. |
+| `ctxc daemon stop` | Stop the daemon only, leaving everything else running. |
 
 ```bash
 ctxc start --detach
@@ -939,6 +940,74 @@ recoverable — `ctxc stop` clears the leftover lockfile.
 
 Set `daemon.port = 0` to have the operating system pick a free port; the
 port it got is recorded in the lockfile.
+
+#### What `ctxc stop` stops
+
+The daemon is not the only thing CtxC runs. An agent that has CtxC configured
+spawns `ctxc mcp`, and may never clean it up. `ctxc stop` ends those too:
+
+```bash
+ctxc stop
+```
+
+```text
+Daemon stopped (pid 34976)
+Stopped 2 other CtxC process(es)
+            pid 41208  ctxc mcp
+            pid 41533  ctxc mcp
+```
+
+The daemon is asked to stop over its API, so it finishes what it is doing and
+removes its own lockfile. The rest have no such channel and are terminated.
+
+Every long-running CtxC process writes a small record of itself into
+`processes/` in the data directory, and removes it on the way out. That is how
+`ctxc stop` finds processes nothing else knows about. A record left behind by a
+process that was killed outright is cleared rather than acted on: pids get
+reused, so a pid is checked against the executable it should be running before
+anything is sent to it.
+
+This is scoped to one data directory. Two installations pointed at two
+`CTXC_HOME`s are two independent systems, and stopping one does not reach into
+the other. `ctxc stop --all` does reach across, for a process that left no
+record at all:
+
+```bash
+ctxc stop --all
+```
+
+Use `ctxc daemon stop` when you want the daemon stopped and nothing else.
+
+#### The dashboard cannot do this
+
+The dashboard has a **Stop daemon & dashboard** button, and that is exactly what
+it stops. It cannot end the rest, and deliberately so: a web page must not be
+able to terminate processes on the machine serving it.
+
+What it does instead is tell you what is left. The System page has an **Also
+running** section listing every other CtxC process — what it is, its pid, and
+when it started — and both that section and the stop confirmation point you at
+`ctxc stop`. The `POST /v1/shutdown` response carries the same fact:
+
+```json
+{ "stopping": true, "pid": 34976, "still_running": 2, "stop_command": "ctxc stop" }
+```
+
+`GET /v1/processes` is the full list:
+
+```json
+{
+  "processes": [
+    { "pid": 34976, "command": "start", "started_at": 1755950000000, "is_daemon": true },
+    { "pid": 41208, "command": "mcp", "started_at": 1755950120000, "is_daemon": false }
+  ],
+  "others": 1,
+  "stop_command": "ctxc stop"
+}
+```
+
+Both read the records in `processes/` and check each pid is still the executable
+it claims, so a process killed outright never shows up as running.
 
 ---
 
@@ -1031,6 +1100,48 @@ rather than offering a URL that cannot work. See
 
 If no browser can be launched — headless machines, containers, locked-down
 desktops — the URL is printed instead. That is not an error.
+
+#### What is in it
+
+The dashboard is the interactive way to run CtxC. It is a client of the HTTP
+API above and has no privileged path around it, so everything it does is
+something you can also do from a terminal or a script.
+
+| Section | What it is for |
+|---------|----------------|
+| Overview | What CtxC has saved, and what the daemon is doing now. |
+| Projects | Add, pause, resume, re-index and remove projects; open one to see its detection, index counts and dependency graph. |
+| Activity | Every operation as it happens, filtered by kind and outcome, with the message behind each failure. |
+| Performance | Savings over time, by stage and by operation. |
+| Context | Search a project's index, read a selected file, and open a `ctxc://context/<id>` reference. |
+| Commands | Every command this build accepts, read from the binary itself, with a link to the equivalent control where there is one. |
+| Settings | The configuration file, edited a key at a time. |
+| System | Daemon, storage, observation, the recent log, and the routes this build answers. |
+
+Press `Ctrl`/`Cmd` + `K` anywhere for the command menu.
+
+#### The same thing, from either side
+
+| CLI | Dashboard |
+|-----|-----------|
+| `ctxc project add` | Projects → Add project |
+| `ctxc project list` | Projects |
+| `ctxc project status` | Projects → open one |
+| `ctxc project pause` / `resume` | Projects → row menu |
+| `ctxc project remove` | Projects → row menu |
+| `ctxc index` | Projects → Re-index |
+| `ctxc search` | Context → Search |
+| `ctxc retrieve` | Context → Reference |
+| `ctxc graph` | Context → Dependencies |
+| `ctxc metrics` | Performance |
+| `ctxc config show` / `path` / `init` | Settings |
+| `ctxc status` | System |
+| `ctxc daemon stop` | System → Stop daemon & dashboard |
+
+Commands with no row here produce a stream, wrap a process, or replace the
+binary — `optimize`, `compile`, `capture`, `mcp`, `integrations`, `update`.
+Those belong in a terminal, and the Commands page says so rather than implying
+a button exists.
 
 ---
 
@@ -1473,11 +1584,48 @@ curl -H "Authorization: Bearer $TOKEN" http://127.0.0.1:7717/v1/status
 | `GET` | `/v1/metrics/timeseries` | Metrics over time. |
 | `GET` | `/v1/metrics/breakdown` | Metrics by operation. |
 | `GET` | `/v1/activity` | Recent operations. |
+| `GET` | `/v1/config` | Effective configuration, its layers, and where they live. |
+| `PATCH` | `/v1/config` | Change settings in the configuration file. |
+| `GET` | `/v1/commands` | The command tree this build accepts. |
+| `GET` | `/v1/contexts/{id}` | Recover the original behind a `ctxc://context/<id>`. |
+| `GET` | `/v1/projects/{id}/file` | One indexed file, by `?path=`. |
+| `GET` | `/v1/projects/{id}/graph` | Dependency summary for a project. |
+| `GET` | `/v1/diagnostics` | Version, paths, database and log capacity. |
+| `GET` | `/v1/logs` | Recent daemon log records. |
 | `GET` | `/v1/events` | Live event stream (WebSocket). |
 | `POST` | `/v1/shutdown` | Stop the daemon. |
 
 The WebSocket at `/v1/events` takes the token as a query parameter —
 `?token=<token>` — because browsers cannot set headers on a handshake.
+
+### Changing configuration over the API
+
+`PATCH /v1/config` takes the keys to set and the keys to hand back to the
+defaults. Only what it names is touched, comments in the file survive, and a
+value that fails validation is refused before anything is written:
+
+```bash
+curl -X PATCH -H "Authorization: Bearer $TOKEN" \
+     -H 'Content-Type: application/json' \
+     -d '{"set": {"watch": {"debounce_ms": 500}}, "reset": ["daemon.port"]}' \
+     http://127.0.0.1:7717/v1/config
+```
+
+The response carries the keys that changed, any that a `CTXC_*` variable still
+overrides, and `restart_required` — the daemon reads its configuration once, at
+startup, so an edit does not reach a running one until it is restarted.
+
+### Reading the daemon's log
+
+The daemon keeps its recent records in memory, so a daemon started with
+`--detach` can still be asked what it has been doing. Nothing is written to
+disk; the oldest records fall out to make room, and the count that fell out is
+reported:
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" \
+     'http://127.0.0.1:7717/v1/logs?level=warn&limit=50'
+```
 
 ---
 
@@ -1542,6 +1690,15 @@ Check it with `ctxc daemon status`, or stop it with `ctxc stop`.
 **`Daemon: not running (a lockfile was left behind)`**
 A daemon exited uncleanly. `ctxc stop` clears the lockfile.
 
+**`no daemon is running`** from `ctxc stop`
+Nothing was running: no daemon, and no other CtxC process for this data
+directory. Try `ctxc stop --all` if you believe one is running under a
+different `CTXC_HOME`.
+
+**`Could not stop pid <pid>: ...`**
+The process refused to end, usually because it belongs to another user or is
+being held open by a debugger. Run `ctxc stop` again, or end it yourself.
+
 **`the daemon did not start`**
 Run `ctxc start` in the foreground to see the failure.
 
@@ -1600,7 +1757,8 @@ cd crates/ctxc-dashboard/ui && npm ci && npm run build && cd ../../..
 cargo build --release
 ```
 
-Stop a running daemon before replacing the binary yourself:
+Stop everything CtxC is running before replacing the binary yourself — an MCP
+server holding the old binary open will keep it from being overwritten:
 
 ```bash
 ctxc stop
@@ -1618,7 +1776,7 @@ CtxC keeps everything in two places: the binary, and its own directories.
 Removing them removes CtxC completely — no project files are ever touched.
 
 ```bash
-# 1. Stop the daemon
+# 1. Stop the daemon and everything else CtxC is running
 ctxc stop
 
 # 2. Take CtxC guidance back out of any project that has it

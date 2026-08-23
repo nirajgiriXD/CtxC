@@ -5,10 +5,21 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <!-- The dashboard renders repository content and must never reach out.
          No remote scripts, no remote styles, no fonts from a CDN: everything
-         it loads is embedded in the binary alongside it. -->
+         it loads is embedded in the binary alongside it.
+
+         `frame-ancestors` is deliberately absent: a browser ignores it in a
+         <meta> element and logs an error saying so. The daemon sends it as a
+         response header instead, where it works. -->
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws://127.0.0.1:* http://127.0.0.1:*; font-src 'self'; base-uri 'none'; form-action 'none'"
+    />
+    <!-- Inlined rather than a file: a browser asks for /favicon.ico on every
+         load, and the daemon answering 404 to that put an error in everyone's
+         console. A data URI is covered by `img-src data:` above. -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%233b5bdb'/%3E%3Cpath d='M21.5 11.5a6.5 6.5 0 1 0 0 9' fill='none' stroke='white' stroke-width='3' stroke-linecap='round'/%3E%3C/svg%3E"
     />
     <title>CtxC</title>
   </head>

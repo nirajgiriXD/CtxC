@@ -7,6 +7,7 @@ mod error;
 mod logging;
 mod output;
 mod process;
+mod terminate;
 
 use std::process::ExitCode;
 

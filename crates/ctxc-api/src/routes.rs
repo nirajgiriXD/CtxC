@@ -28,6 +28,7 @@ use ctxc_project::{Project, Registry};
 use ctxc_retrieval::{Query, Retrieval, RetrievalOptions, Retriever};
 use ctxc_store::{IndexStore, SqliteIndexStore, SqliteMetricsStore, SqliteProjectStore};
 
+use crate::control;
 use crate::state::ApiState;
 
 /// Build the router.
@@ -47,6 +48,17 @@ pub fn router(state: ApiState) -> Router {
         .route("/v1/metrics/timeseries", get(metrics_timeseries))
         .route("/v1/metrics/breakdown", get(metrics_breakdown))
         .route("/v1/activity", get(activity))
+        .route(
+            "/v1/config",
+            get(control::config).patch(control::edit_config),
+        )
+        .route("/v1/commands", get(control::commands))
+        .route("/v1/contexts/{id}", get(control::context))
+        .route("/v1/projects/{id}/file", get(control::project_file))
+        .route("/v1/projects/{id}/graph", get(control::project_graph))
+        .route("/v1/diagnostics", get(control::diagnostics))
+        .route("/v1/processes", get(control::processes))
+        .route("/v1/logs", get(control::recent_logs))
         .route("/v1/events", get(events))
         .route("/v1/shutdown", post(shutdown))
         // The dashboard is served from the root, under everything versioned.
@@ -80,7 +92,7 @@ pub struct ApiErrorBody {
 pub struct Failure(StatusCode, ApiError);
 
 impl Failure {
-    fn new(status: StatusCode, error: impl Into<String>) -> Failure {
+    pub(crate) fn new(status: StatusCode, error: impl Into<String>) -> Failure {
         Failure(
             status,
             ApiError {
@@ -90,7 +102,7 @@ impl Failure {
         )
     }
 
-    fn with_hint(mut self, hint: Option<String>) -> Failure {
+    pub(crate) fn with_hint(mut self, hint: Option<String>) -> Failure {
         self.1.hint = hint;
         self
     }
@@ -110,6 +122,21 @@ impl From<ctxc_project::ProjectError> for Failure {
             | ctxc_project::ProjectError::NotADirectory { .. }
             | ctxc_project::ProjectError::Ambiguous { .. }
             | ctxc_project::ProjectError::Config { .. } => StatusCode::BAD_REQUEST,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        let hint = error.hint();
+        Failure::new(status, error.to_string()).with_hint(hint)
+    }
+}
+
+impl From<ctxc_core::Error> for Failure {
+    fn from(error: ctxc_core::Error) -> Self {
+        let status = match error {
+            // A rejected value or an unreadable file is something the caller
+            // sent or something they can fix; neither is the daemon failing.
+            ctxc_core::Error::ConfigValue { .. }
+            | ctxc_core::Error::ConfigParse { .. }
+            | ctxc_core::Error::InvalidContextId(_) => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let hint = error.hint();
@@ -149,13 +176,13 @@ impl From<ctxc_metrics::MetricsError> for Failure {
     }
 }
 
-type ApiResult<T> = Result<Json<T>, Failure>;
+pub(crate) type ApiResult<T> = Result<Json<T>, Failure>;
 
 /// Check the bearer token.
 ///
 /// `/v1/health` is the one route that does not require it: something has to be
 /// answerable before a client knows whether a daemon is even there.
-fn authorize(state: &ApiState, headers: &HeaderMap) -> Result<(), Failure> {
+pub(crate) fn authorize(state: &ApiState, headers: &HeaderMap) -> Result<(), Failure> {
     let presented = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -748,6 +775,15 @@ fn serve_asset(asset: Option<&'static ctxc_dashboard::Asset>) -> Response {
             // text from someone's files. Nothing here should ever be sniffed
             // into a different type than it was declared as.
             (axum::http::header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
+            // The rest of the policy is in the document, where it can also
+            // protect `npm run dev`. These two only work as headers: a browser
+            // ignores `frame-ancestors` in a <meta> element, so a dashboard
+            // relying on it there would be framed by anything that asked.
+            (
+                axum::http::header::CONTENT_SECURITY_POLICY,
+                "frame-ancestors 'none'",
+            ),
+            (axum::http::header::X_FRAME_OPTIONS, "DENY"),
         ],
         asset.bytes,
     )
@@ -830,6 +866,13 @@ async fn stream_events(mut socket: WebSocket, state: ApiState) {
 pub struct ShutdownResponse {
     pub stopping: bool,
     pub pid: u32,
+    /// CtxC processes that will still be running once this one is gone.
+    ///
+    /// Reported so a caller cannot mistake this for stopping CtxC. It stops
+    /// the daemon, which is also what serves the dashboard and the API.
+    pub still_running: usize,
+    /// What to run to end those too.
+    pub stop_command: String,
 }
 
 async fn shutdown(
@@ -840,10 +883,18 @@ async fn shutdown(
 
     // Windows has no portable signal for "stop gracefully", so the API is how a
     // client asks — which also means `ctxc stop` behaves the same everywhere.
+    let daemon = std::process::id();
+    let still_running = ctxc_core::processes::entries(&state.locations().data_dir)
+        .into_iter()
+        .filter(|entry| entry.pid != daemon && entry.is_alive())
+        .count();
+
     state.request_shutdown();
     Ok(Json(ShutdownResponse {
         stopping: true,
-        pid: std::process::id(),
+        pid: daemon,
+        still_running,
+        stop_command: "ctxc stop".to_string(),
     }))
 }
 
@@ -866,6 +917,15 @@ pub fn routes() -> Vec<&'static str> {
         "GET /v1/metrics/timeseries",
         "GET /v1/metrics/breakdown",
         "GET /v1/activity",
+        "GET /v1/config",
+        "PATCH /v1/config",
+        "GET /v1/commands",
+        "GET /v1/contexts/{id}",
+        "GET /v1/projects/{id}/file",
+        "GET /v1/projects/{id}/graph",
+        "GET /v1/diagnostics",
+        "GET /v1/processes",
+        "GET /v1/logs",
         "WS /v1/events",
         "POST /v1/shutdown",
         "GET / (dashboard)",

@@ -1,50 +1,114 @@
 @import "tailwindcss";
 
+/* Dark mode is a decision, not a guess: the shell writes `light` or `dark` onto
+   <html> from what the user chose, falling back to the system preference. A
+   media query alone could not express "I want dark on a light desktop". */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* The dashboard ships inside the binary and must never fetch anything, so
    there are no webfonts here — only the stacks every platform already has. */
 @theme {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono",
-    "Roboto Mono", Menlo, Consolas, monospace;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", "Roboto Mono",
+    Menlo, Consolas, monospace;
 }
 
 /* shadcn/ui's token names, so components read the same way they do upstream.
-   Dark is the default: this is a developer tool that lives next to a terminal. */
+   Light is defined first and dark overrides it, which keeps every colour
+   defined in exactly one place per theme. */
 @layer base {
   :root {
-    --background: oklch(0.145 0 0);
-    --foreground: oklch(0.985 0 0);
-    --card: oklch(0.19 0.005 285);
-    --card-foreground: oklch(0.985 0 0);
-    --muted: oklch(0.26 0.006 285);
-    --muted-foreground: oklch(0.68 0.01 285);
-    --border: oklch(0.28 0.006 285);
-    --primary: oklch(0.72 0.16 250);
-    --primary-foreground: oklch(0.145 0 0);
-    --accent: oklch(0.26 0.006 285);
-    --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.64 0.2 25);
-    --warning: oklch(0.78 0.15 75);
-    --success: oklch(0.72 0.15 155);
+    --background: oklch(0.99 0.002 285);
+    --foreground: oklch(0.19 0.01 285);
+
+    --card: oklch(1 0 0);
+    --card-foreground: var(--foreground);
+    --popover: oklch(1 0 0);
+    --popover-foreground: var(--foreground);
+
+    --primary: oklch(0.54 0.18 258);
+    --primary-foreground: oklch(0.99 0.002 285);
+
+    --secondary: oklch(0.965 0.004 285);
+    --secondary-foreground: oklch(0.28 0.012 285);
+
+    --muted: oklch(0.965 0.004 285);
+    --muted-foreground: oklch(0.5 0.015 285);
+
+    --accent: oklch(0.955 0.006 285);
+    --accent-foreground: oklch(0.24 0.012 285);
+
+    --destructive: oklch(0.58 0.21 27);
+    --destructive-foreground: oklch(0.99 0.002 285);
+    --warning: oklch(0.68 0.15 68);
+    --success: oklch(0.58 0.14 155);
+    --info: oklch(0.58 0.13 234);
+
+    --border: oklch(0.91 0.005 285);
+    --input: oklch(0.89 0.006 285);
+    --ring: oklch(0.54 0.18 258);
+
+    --sidebar: oklch(0.975 0.004 285);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-border: oklch(0.91 0.005 285);
+    --sidebar-accent: oklch(0.94 0.008 285);
+
+    /* Series colours, ordered so neighbouring series never sit next to each
+       other on the hue wheel. Shared by every chart on every page: one series
+       keeps one colour wherever it is drawn. */
+    --chart-1: oklch(0.54 0.18 258);
+    --chart-2: oklch(0.6 0.14 175);
+    --chart-3: oklch(0.62 0.17 43);
+    --chart-4: oklch(0.55 0.19 312);
+    --chart-5: oklch(0.6 0.13 128);
+
     --radius: 0.65rem;
   }
 
-  /* A light desktop still gets a readable dashboard. */
-  @media (prefers-color-scheme: light) {
-    :root:not(.dark) {
-      --background: oklch(0.99 0 0);
-      --foreground: oklch(0.18 0 0);
-      --card: oklch(1 0 0);
-      --card-foreground: oklch(0.18 0 0);
-      --muted: oklch(0.96 0.003 285);
-      --muted-foreground: oklch(0.5 0.01 285);
-      --border: oklch(0.9 0.004 285);
-      --primary: oklch(0.55 0.17 255);
-      --primary-foreground: oklch(0.99 0 0);
-      --accent: oklch(0.96 0.003 285);
-      --accent-foreground: oklch(0.18 0 0);
-    }
+  .dark {
+    --background: oklch(0.15 0.005 285);
+    --foreground: oklch(0.97 0.004 285);
+
+    --card: oklch(0.187 0.006 285);
+    --card-foreground: var(--foreground);
+    --popover: oklch(0.205 0.007 285);
+    --popover-foreground: var(--foreground);
+
+    --primary: oklch(0.69 0.15 256);
+    --primary-foreground: oklch(0.16 0.02 258);
+
+    --secondary: oklch(0.245 0.007 285);
+    --secondary-foreground: oklch(0.95 0.004 285);
+
+    --muted: oklch(0.235 0.007 285);
+    --muted-foreground: oklch(0.67 0.012 285);
+
+    --accent: oklch(0.265 0.008 285);
+    --accent-foreground: oklch(0.97 0.004 285);
+
+    --destructive: oklch(0.66 0.19 25);
+    --destructive-foreground: oklch(0.15 0.01 25);
+    --warning: oklch(0.8 0.14 78);
+    --success: oklch(0.74 0.15 158);
+    --info: oklch(0.73 0.12 228);
+
+    --border: oklch(0.272 0.007 285);
+    --input: oklch(0.31 0.008 285);
+    --ring: oklch(0.6 0.14 256);
+
+    --sidebar: oklch(0.168 0.006 285);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-border: oklch(0.25 0.007 285);
+    --sidebar-accent: oklch(0.23 0.008 285);
+
+    --chart-1: oklch(0.69 0.15 256);
+    --chart-2: oklch(0.74 0.13 175);
+    --chart-3: oklch(0.76 0.15 55);
+    --chart-4: oklch(0.7 0.17 310);
+    --chart-5: oklch(0.75 0.14 132);
   }
 }
 
@@ -53,18 +117,37 @@
   --color-foreground: var(--foreground);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-border: var(--border);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
   --color-accent: var(--accent);
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-warning: var(--warning);
   --color-success: var(--success);
+  --color-info: var(--info);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 0.25rem);
+  --radius-md: calc(var(--radius) - 0.125rem);
   --radius-lg: var(--radius);
-  --radius-md: calc(var(--radius) - 0.2rem);
+  --radius-xl: calc(var(--radius) + 0.25rem);
 }
 
 @layer base {
@@ -72,15 +155,142 @@
     border-color: var(--border);
   }
 
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
   body {
     background-color: var(--background);
     color: var(--foreground);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
   }
 
   /* Numbers that change every second must not make the layout jump. */
   .tabular {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Keyboard focus is always visible; a pointer click is not ringed. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  /* Scrollbars that belong to the theme rather than to the operating system.
+     Long file listings and log panels are a large part of this interface. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--border);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: var(--muted-foreground);
+  }
+}
+
+@layer utilities {
+  /* One shared entrance for panels that arrive after a fetch, so a page does
+     not flash into place a card at a time. */
+  @keyframes ctxc-rise {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  .animate-rise {
+    animation: ctxc-rise 0.18s ease-out both;
+  }
+
+  /* Overlays and popovers share one entrance and one exit, so a dropdown, a
+     dialog and a tooltip do not each arrive in their own dialect. Written here
+     rather than pulled from an animation package: it is fifteen lines, and the
+     dashboard is not allowed to fetch anything at runtime anyway. */
+  @keyframes ctxc-pop-in {
+    from {
+      opacity: 0;
+      transform: scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes ctxc-pop-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+      transform: scale(0.98);
+    }
+  }
+
+  @keyframes ctxc-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes ctxc-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  .pop[data-state="open"] {
+    animation: ctxc-pop-in 0.14s ease-out;
+  }
+
+  .pop[data-state="closed"] {
+    animation: ctxc-pop-out 0.1s ease-in;
+  }
+
+  .fade[data-state="open"] {
+    animation: ctxc-fade-in 0.14s ease-out;
+  }
+
+  .fade[data-state="closed"] {
+    animation: ctxc-fade-out 0.1s ease-in;
+  }
+
+  /* Everything above respects a person who asked for less movement. */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
   }
 }

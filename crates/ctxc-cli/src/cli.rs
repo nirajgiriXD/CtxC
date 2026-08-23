@@ -165,8 +165,12 @@ pub enum Command {
         detach: bool,
     },
 
-    /// Stop the CtxC daemon.
-    Stop,
+    /// Stop the daemon and every other CtxC process.
+    Stop {
+        /// Also stop CtxC processes belonging to other data directories.
+        #[arg(long)]
+        all: bool,
+    },
 
     /// Lower-level daemon control and diagnostics.
     Daemon {
@@ -506,6 +510,7 @@ mod tests {
         assert!(Cli::try_parse_from(["ctxc", "start"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "start", "--detach"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "stop"]).is_ok());
+        assert!(Cli::try_parse_from(["ctxc", "stop", "--all"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "daemon"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "daemon", "status"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "project", "add", "."]).is_ok());

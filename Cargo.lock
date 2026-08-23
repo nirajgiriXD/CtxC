@@ -296,6 +296,7 @@ dependencies = [
  "ctxc-core",
  "ctxc-dashboard",
  "ctxc-engine",
+ "ctxc-graph",
  "ctxc-metrics",
  "ctxc-project",
  "ctxc-retrieval",
@@ -305,6 +306,7 @@ dependencies = [
  "thiserror 1.0.69",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -352,6 +354,7 @@ dependencies = [
  "serde_json",
  "thiserror 1.0.69",
  "toml",
+ "toml_edit",
 ]
 
 [[package]]

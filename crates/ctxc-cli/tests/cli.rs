@@ -1517,6 +1517,166 @@ fn a_running_daemon_serves_the_api_and_stops_cleanly() {
 }
 
 #[test]
+fn stopping_ends_the_other_ctxc_processes_too() {
+    let sandbox = Sandbox::new("stop-everything");
+
+    // An MCP server is the case this exists for: an agent spawns one, the agent
+    // goes away, and nothing is left that knows how to find it. Its stdin stays
+    // open so it blocks on the protocol rather than exiting on its own.
+    let mut server = sandbox
+        .command(&["mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the MCP server");
+
+    let recorded = wait_for_records(&sandbox, 1);
+    assert_eq!(recorded.len(), 1, "the MCP server records itself");
+    assert_eq!(recorded[0]["command"], "mcp");
+
+    // No daemon is running, so stopping the MCP server is the whole result.
+    let output = sandbox.run(&["stop"]);
+    assert_success(&output);
+    assert!(stdout(&output).contains("Stopped 1"), "{}", stdout(&output));
+
+    let exit = server.wait().expect("the MCP server is gone");
+    assert!(!exit.success(), "it was terminated rather than asked");
+    assert!(
+        records(&sandbox).is_empty(),
+        "a stopped process leaves no record behind"
+    );
+}
+
+#[test]
+fn stopping_clears_records_of_processes_that_are_already_gone() {
+    let sandbox = Sandbox::new("stop-stale-records");
+    std::fs::create_dir_all(sandbox.path("processes")).unwrap();
+    // A pid that is not running CtxC must never be signalled, whatever the
+    // record says — pids get reused, and this one belongs to somebody else.
+    std::fs::write(
+        sandbox.path("processes").join("999999.json"),
+        "{\"pid\":999999,\"command\":\"mcp\",\
+         \"executable\":\"ctxc-not-a-real-binary\",\"started_at\":1}",
+    )
+    .unwrap();
+
+    let output = sandbox.run(&["stop"]);
+    assert_success(&output);
+    assert!(stdout(&output).contains("Cleared 1"), "{}", stdout(&output));
+    assert!(records(&sandbox).is_empty());
+}
+
+#[test]
+fn a_running_daemon_is_stopped_cleanly_even_when_it_is_not_alone() {
+    let sandbox = Sandbox::with_daemon("stop-daemon-and-server");
+    let mut daemon = sandbox.spawn_daemon();
+
+    let mut server = sandbox
+        .command(&["mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the MCP server");
+    wait_for_records(&sandbox, 2);
+
+    let output = sandbox.run(&["stop", "--format", "json"]);
+    assert_success(&output);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert!(json["daemon"].as_u64().unwrap() > 0, "the daemon is named");
+    assert_eq!(json["terminated"].as_array().unwrap().len(), 1);
+    assert_eq!(json["terminated"][0]["command"], "mcp");
+
+    // The daemon was asked over its API, not killed, so it still exits cleanly.
+    let exit = daemon.wait().expect("the daemon exits when asked");
+    assert!(exit.success(), "the daemon is asked to stop, never killed");
+    let _ = server.wait();
+
+    assert!(!sandbox.path("daemon.lock").exists());
+    assert!(records(&sandbox).is_empty());
+}
+
+#[test]
+fn the_daemon_reports_what_stopping_it_would_leave_running() {
+    let sandbox = Sandbox::with_daemon("api-processes");
+    let mut daemon = sandbox.spawn_daemon();
+    let client = daemon_client(&sandbox);
+
+    // With only the daemon, stopping it really does stop all of CtxC.
+    let alone: serde_json::Value = client.get("/v1/processes").expect("list processes");
+    assert_eq!(alone["others"], 0);
+    assert_eq!(alone["stop_command"], "ctxc stop");
+    assert_eq!(alone["processes"][0]["is_daemon"], true);
+
+    let mut server = sandbox
+        .command(&["mcp"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn the MCP server");
+    wait_for_records(&sandbox, 2);
+
+    // The dashboard needs this to tell someone what its Stop button misses.
+    let crowded: serde_json::Value = client.get("/v1/processes").expect("list processes");
+    assert_eq!(crowded["others"], 1);
+    let others: Vec<&serde_json::Value> = crowded["processes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|process| process["is_daemon"] == false)
+        .collect();
+    assert_eq!(others.len(), 1);
+    assert_eq!(others[0]["command"], "mcp");
+
+    // Shutting down says the same thing, so a caller that never reads the list
+    // still learns it did not stop everything.
+    let stopping: serde_json::Value = client
+        .post("/v1/shutdown", &serde_json::json!({}))
+        .expect("ask the daemon to stop");
+    assert_eq!(stopping["stopping"], true);
+    assert_eq!(stopping["still_running"], 1);
+    assert_eq!(stopping["stop_command"], "ctxc stop");
+
+    let exit = daemon.wait().expect("the daemon exits when asked");
+    assert!(exit.success());
+
+    // And it really is still running: the API only ever looked.
+    assert_eq!(
+        records(&sandbox).len(),
+        1,
+        "the MCP server outlived the daemon"
+    );
+    assert_success(&sandbox.run(&["stop"]));
+    let _ = server.wait();
+}
+
+/// The processes CtxC has recorded for a sandbox.
+fn records(sandbox: &Sandbox) -> Vec<serde_json::Value> {
+    let Ok(listing) = std::fs::read_dir(sandbox.path("processes")) else {
+        return Vec::new();
+    };
+    listing
+        .flatten()
+        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+        .filter_map(|text| serde_json::from_str(&text).ok())
+        .collect()
+}
+
+/// Wait for `count` processes to have recorded themselves.
+fn wait_for_records(sandbox: &Sandbox, count: usize) -> Vec<serde_json::Value> {
+    for _ in 0..100 {
+        let found = records(sandbox);
+        if found.len() >= count {
+            return found;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+    panic!("{count} process record(s) never appeared");
+}
+
+#[test]
 fn starting_detached_does_not_hold_its_caller_open() {
     let sandbox = Sandbox::with_daemon("daemon-detach-pipes");
 

@@ -4,6 +4,7 @@
 //! human and machine output can never drift apart.
 
 pub mod analyze;
+pub mod catalog;
 pub mod config;
 pub mod daemon;
 pub mod dashboard;
@@ -17,6 +18,7 @@ pub mod project;
 pub mod search;
 pub mod similar;
 pub mod status;
+pub mod stop;
 pub mod update;
 pub mod version;
 
@@ -27,6 +29,20 @@ use anyhow::Result;
 use crate::app::App;
 use crate::cli::{Command, DaemonAction};
 use crate::output::Printer;
+
+/// Record a long-running process so `ctxc stop` can find it later.
+///
+/// Only the commands that outlive their invocation need this: a daemon in the
+/// foreground, and an MCP server an agent spawned and may never reap. Failing
+/// to record costs a warning and nothing else — the process still runs, it is
+/// only harder to stop.
+pub(crate) fn record(app: &App, command: &str) -> Option<ctxc_core::processes::Registration> {
+    ctxc_core::processes::register(app.paths().data_dir(), command)
+        .inspect_err(|err| {
+            tracing::warn!(error = %err, "could not record this process; `ctxc stop` will not find it")
+        })
+        .ok()
+}
 
 /// Dispatch a parsed command.
 pub fn dispatch<W: Write>(command: &Command, app: &App, printer: &mut Printer<W>) -> Result<()> {
@@ -78,7 +94,7 @@ pub fn dispatch<W: Write>(command: &Command, app: &App, printer: &mut Printer<W>
         Command::Compile { inputs, options } => optimize::compile(app, inputs, options, printer),
         Command::Project { action } => project::run(app, action, printer),
         Command::Start { detach } => daemon::start(app, *detach, printer),
-        Command::Stop => daemon::stop(app, printer),
+        Command::Stop { all } => stop::run(app, *all, printer),
         Command::Daemon { action } => match action {
             Some(DaemonAction::Start) => daemon::start(app, true, printer),
             Some(DaemonAction::Stop) => daemon::stop(app, printer),

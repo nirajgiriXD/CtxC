@@ -8,6 +8,8 @@
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
+use std::path::{Path, PathBuf};
+
 use ctxc_core::{Config, Timestamp};
 use ctxc_metrics::{Collector, MetricEvent};
 use ctxc_store::Database;
@@ -76,6 +78,41 @@ pub struct WatchReport {
     pub pending_changes: usize,
 }
 
+/// Where this installation keeps its things.
+///
+/// Resolved once, by whatever started the daemon, and carried rather than
+/// re-derived: a handler that resolved paths for itself could answer with a
+/// different config file than the one the daemon actually loaded.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Locations {
+    pub config_file: PathBuf,
+    pub config_dir: PathBuf,
+    pub data_dir: PathBuf,
+    pub cache_dir: PathBuf,
+    pub database: PathBuf,
+}
+
+impl Locations {
+    /// Resolve from the platform directories and the configuration that was
+    /// loaded on top of them.
+    pub fn resolve(config: &Config, paths: &ctxc_core::Paths) -> Locations {
+        Locations {
+            config_file: paths.config_file(),
+            config_dir: paths.config_dir().to_path_buf(),
+            data_dir: paths.data_dir().to_path_buf(),
+            cache_dir: paths.cache_dir().to_path_buf(),
+            database: config.database_path(paths),
+        }
+    }
+
+    /// Use a configuration file other than the platform default, as `--config`
+    /// does.
+    pub fn with_config_file(mut self, path: impl AsRef<Path>) -> Locations {
+        self.config_file = path.as_ref().to_path_buf();
+        self
+    }
+}
+
 /// Everything a request handler can reach.
 #[derive(Clone)]
 pub struct ApiState {
@@ -85,6 +122,7 @@ pub struct ApiState {
 struct Inner {
     database: Mutex<Database>,
     config: Config,
+    locations: Locations,
     token: AccessToken,
     started: Instant,
     started_at: Timestamp,
@@ -99,12 +137,18 @@ struct Inner {
 }
 
 impl ApiState {
-    pub fn new(database: Database, config: Config, token: AccessToken) -> Self {
+    pub fn new(
+        database: Database,
+        config: Config,
+        token: AccessToken,
+        locations: Locations,
+    ) -> Self {
         ApiState {
             inner: Arc::new(Inner {
                 database: Mutex::new(database),
                 metrics: Collector::from_config(&config),
                 events: Broadcaster::new(),
+                locations,
                 config,
                 token,
                 started: Instant::now(),
@@ -130,6 +174,16 @@ impl ApiState {
 
     pub fn config(&self) -> &Config {
         &self.inner.config
+    }
+
+    /// The configuration the daemon is running with, and where it came from.
+    ///
+    /// This is what was loaded at startup, not what the file says now: an edit
+    /// made through the API changes the file, and the daemon keeps working from
+    /// what it read until it is restarted. Reporting the live values is the
+    /// only way a settings screen can honestly say a restart is needed.
+    pub fn locations(&self) -> &Locations {
+        &self.inner.locations
     }
 
     pub fn token(&self) -> &AccessToken {
@@ -255,6 +309,7 @@ mod tests {
             Database::open_in_memory().unwrap(),
             Config::default(),
             AccessToken::generate(),
+            Locations::default(),
         );
         let mut subscriber = state.events().subscribe();
 
@@ -272,6 +327,7 @@ mod tests {
             Database::open_in_memory().unwrap(),
             Config::default(),
             AccessToken::generate(),
+            Locations::default(),
         );
         let mut subscriber = state.events().subscribe();
 
@@ -309,6 +365,7 @@ mod tests {
             Database::open_in_memory().unwrap(),
             Config::default(),
             AccessToken::generate(),
+            Locations::default(),
         );
 
         state.record(MetricEvent::new(Operation::Search, "api"));
@@ -326,6 +383,7 @@ mod tests {
             Database::open_in_memory().unwrap(),
             Config::default(),
             AccessToken::generate(),
+            Locations::default(),
         );
         state.flush_metrics();
     }
@@ -336,6 +394,7 @@ mod tests {
             Database::open_in_memory().unwrap(),
             Config::default(),
             AccessToken::generate(),
+            Locations::default(),
         );
 
         let version = state.with_database(|database| database.schema_version().unwrap());

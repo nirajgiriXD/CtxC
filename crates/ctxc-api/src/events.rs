@@ -53,6 +53,12 @@ pub enum StreamEvent {
     /// polling, which is the kind of degradation a person needs to see.
     Watching { projects: Vec<WatchReport> },
 
+    /// The configuration file changed, and which keys moved.
+    ///
+    /// Sent so that a settings screen open in another tab stops showing values
+    /// that are no longer what the file says.
+    Config { changed: Vec<String> },
+
     /// Something worth saying that is not an operation.
     Notice {
         /// `info`, `warn`, or `error`.

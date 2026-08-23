@@ -6,15 +6,17 @@
 //! optimization logic belongs in `ctxc-engine` and `ctxc-optimizer`.
 
 pub mod config;
+pub mod config_file;
 pub mod context;
 pub mod error;
 pub mod id;
 pub mod optimization;
 pub mod platform;
+pub mod processes;
 pub mod time;
 pub mod token;
 
-pub use config::Config;
+pub use config::{Config, PartialConfig};
 pub use context::{ContentType, Context, ContextMetadata, ContextSource};
 pub use error::{report, report_with, Error, Result};
 pub use id::ContextId;

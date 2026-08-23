@@ -435,7 +435,7 @@ impl Supervisor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use ctxc_api::AccessToken;
+    use ctxc_api::{AccessToken, Locations};
     use ctxc_core::Config;
     use ctxc_store::Database;
 
@@ -444,6 +444,7 @@ mod tests {
             Database::open_in_memory().unwrap(),
             Config::default(),
             AccessToken::generate(),
+            Locations::default(),
         )
     }
 

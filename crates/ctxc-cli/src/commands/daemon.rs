@@ -181,7 +181,18 @@ pub fn start<W: Write>(app: &App, detach: bool, printer: &mut Printer<W>) -> Res
         return start_detached(app, printer);
     }
 
-    let options = DaemonOptions::from_config(&app.config, app.paths());
+    let options =
+        DaemonOptions::from_config(&app.config, app.paths()).with_config_file(&app.config_file);
+
+    // The daemon serves the dashboard, and the dashboard has a page describing
+    // what `ctxc` can do. It is described here, from this binary's own command
+    // tree, so the page can never list a command this build does not have.
+    ctxc_api::commands::install(crate::commands::catalog::build());
+
+    // Recorded so `ctxc stop` can find this process even though nobody here
+    // spawned it; the guard clears the record when the daemon returns.
+    let _recorded = crate::commands::record(app, "start");
+
     // Running in the foreground is the honest default: the process the user
     // started is the process doing the work.
     ctxc_daemon::run(app.config.clone(), options).context("the daemon stopped")?;

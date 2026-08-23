@@ -47,6 +47,16 @@ export function duration(ms: number): string {
   return `${(ms / 3_600_000).toFixed(1)} h`;
 }
 
+/** An uptime, spelled the way a status line spells one: "2h 14m". */
+export function uptime(ms: number): string {
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  const hours = Math.floor(seconds / 3_600);
+  if (hours < 24) return `${hours}h ${Math.floor((seconds % 3_600) / 60)}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
 /** How long ago something happened: "2 minutes ago". */
 export function ago(epochMillis: number): string {
   const seconds = Math.max(0, (Date.now() - epochMillis) / 1000);
@@ -67,9 +77,14 @@ function plural(count: number, unit: string): string {
   return `${count} ${unit}${count === 1 ? "" : "s"} ago`;
 }
 
-/** The wall-clock time of an event, for the activity feed. */
+/** The wall-clock time of an event, for the activity feed and the log. */
 export function clock(epochMillis: number): string {
   return new Date(epochMillis).toLocaleTimeString("en-GB", { hour12: false });
+}
+
+/** A full date and time, for tooltips and detail rows. */
+export function stamp(epochMillis: number): string {
+  return new Date(epochMillis).toLocaleString();
 }
 
 /** A bucket label on a chart axis. */
@@ -95,4 +110,16 @@ export function cost(
 ): string | null {
   if (!estimate) return null;
   return `${estimate.currency} ${estimate.amount.toFixed(2)}`;
+}
+
+/** A path, shortened from the left so the interesting end survives. */
+export function shortPath(path: string, keep = 48): string {
+  if (path.length <= keep) return path;
+  return `…${path.slice(path.length - keep + 1)}`;
+}
+
+/** Sentence case for an operation or outcome name coming from the daemon. */
+export function title(value: string): string {
+  const spaced = value.replace(/[_-]/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }

@@ -6,13 +6,19 @@
 //! privileged path around it.
 
 pub mod client;
+pub mod commands;
+pub mod control;
 pub mod events;
+pub mod logs;
 pub mod routes;
 pub mod state;
 
+pub use commands::{ArgumentInfo, Catalog, CommandInfo, DashboardEquivalent, OptionInfo};
+pub use control::{ProcessList, ProcessView};
 pub use events::{Broadcaster, Envelope, StreamEvent};
+pub use logs::{LogPage, LogRecord};
 pub use routes::{router, ApiError, DaemonStatus, Health, ProjectView};
-pub use state::{AccessToken, ApiState, WatchReport};
+pub use state::{AccessToken, ApiState, Locations, WatchReport};
 
 /// Serve the API on an already-bound listener until `shutdown` resolves.
 ///

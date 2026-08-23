@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use ctxc_api::state::{AccessToken, ApiState};
+use ctxc_api::state::{AccessToken, ApiState, Locations};
 use ctxc_core::{Config, Paths};
 use ctxc_store::Database;
 
@@ -32,6 +32,9 @@ pub struct DaemonOptions {
     pub port: u16,
     /// How the daemon observes projects.
     pub supervisor: SupervisorOptions,
+    /// Where this installation keeps its files, so the API can report them and
+    /// edit the right configuration file.
+    pub locations: Locations,
 }
 
 impl DaemonOptions {
@@ -48,7 +51,17 @@ impl DaemonOptions {
                 watch_enabled: config.watch.enabled,
                 ..SupervisorOptions::default()
             },
+            locations: Locations::resolve(config, paths),
         }
+    }
+
+    /// Use a configuration file other than the platform default.
+    ///
+    /// `ctxc --config` picks one for the run; the daemon has to edit that file
+    /// rather than the one it would have chosen on its own.
+    pub fn with_config_file(mut self, path: impl AsRef<std::path::Path>) -> DaemonOptions {
+        self.locations = self.locations.with_config_file(path);
+        self
     }
 }
 
@@ -92,7 +105,7 @@ pub fn run(config: Config, options: DaemonOptions) -> Result<()> {
 async fn serve(config: Config, options: DaemonOptions) -> Result<()> {
     let database = Database::open(&options.database).map_err(DaemonError::Store)?;
     let token = AccessToken::generate();
-    let state = ApiState::new(database, config, token.clone());
+    let state = ApiState::new(database, config, token.clone(), options.locations.clone());
 
     let address: SocketAddr = SocketAddr::new(
         options

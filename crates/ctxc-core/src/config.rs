@@ -222,128 +222,421 @@ impl Default for Config {
 }
 
 /// One configuration layer: every key optional.
-#[derive(Debug, Default, Clone, Deserialize)]
+///
+/// Deserialized from a file or built from the environment, and serialized back
+/// when something edits the file: a layer records the keys someone actually set,
+/// so writing one out never turns a default into a decision.
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialConfig {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialCore::is_empty")]
     pub core: PartialCore,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialOptimization::is_empty")]
     pub optimization: PartialOptimization,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialToggle::is_empty")]
     pub retrieval: PartialToggle,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialRanking::is_empty")]
     pub ranking: PartialRanking,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialToggle::is_empty")]
     pub graph: PartialToggle,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialStorage::is_empty")]
     pub storage: PartialStorage,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialBudget::is_empty")]
     pub budget: PartialBudget,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialDaemon::is_empty")]
     pub daemon: PartialDaemon,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialWatch::is_empty")]
     pub watch: PartialWatch,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialSemantic::is_empty")]
     pub semantic: PartialSemantic,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialMetrics::is_empty")]
     pub metrics: PartialMetrics,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialDashboard::is_empty")]
     pub dashboard: PartialDashboard,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "PartialToggle::is_empty")]
     pub telemetry: PartialToggle,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialCore {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub mode: Option<String>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialOptimization {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub target_reduction: Option<f64>,
 }
 
 /// Sections whose only knob is `enabled`.
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialToggle {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialRanking {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub keyword: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub semantic: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub symbol: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub graph: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub recency: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hop_decay: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub expansion_depth: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub recency_half_life_days: Option<f64>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialStorage {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialBudget {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<u32>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialDaemon {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_start: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub bind: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialWatch {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub debounce_ms: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub poll_interval_ms: Option<u32>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialSemantic {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub dimensions: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub redundancy_threshold: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub diversity: Option<f64>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialMetrics {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub raw_retention_days: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hourly_retention_days: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_per_million_input_tokens: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub cost_currency: Option<String>,
 }
 
-#[derive(Debug, Default, Clone, Deserialize)]
+#[derive(Debug, Default, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PartialDashboard {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
 }
 
+/// Whether a section carries no decisions at all.
+///
+/// Used to keep empty tables out of a written file: a `[semantic]` header with
+/// nothing under it says something was configured when nothing was.
+macro_rules! empty_when_unset {
+    ($type:ty, $($field:ident),+ $(,)?) => {
+        impl $type {
+            pub fn is_empty(&self) -> bool {
+                $(self.$field.is_none())&&+
+            }
+        }
+    };
+}
+
+empty_when_unset!(PartialCore, mode);
+empty_when_unset!(PartialOptimization, enabled, target_reduction);
+empty_when_unset!(PartialToggle, enabled);
+empty_when_unset!(
+    PartialRanking,
+    keyword,
+    semantic,
+    symbol,
+    graph,
+    recency,
+    hop_decay,
+    expansion_depth,
+    recency_half_life_days,
+);
+empty_when_unset!(PartialStorage, path);
+empty_when_unset!(PartialBudget, default);
+empty_when_unset!(PartialDaemon, enabled, auto_start, bind, port);
+empty_when_unset!(PartialWatch, enabled, debounce_ms, poll_interval_ms);
+empty_when_unset!(
+    PartialSemantic,
+    enabled,
+    provider,
+    dimensions,
+    redundancy_threshold,
+    diversity,
+);
+empty_when_unset!(
+    PartialMetrics,
+    enabled,
+    raw_retention_days,
+    hourly_retention_days,
+    cost_model,
+    cost_per_million_input_tokens,
+    cost_currency,
+);
+empty_when_unset!(PartialDashboard, enabled, port);
+
 impl PartialConfig {
+    /// Whether this layer decides nothing.
+    pub fn is_empty(&self) -> bool {
+        self.set_keys().is_empty()
+    }
+
+    /// The dotted keys this layer sets, lowest section first.
+    ///
+    /// A settings screen needs this to say *why* a value is what it is: a key
+    /// set by the environment cannot be changed by editing the file, and
+    /// showing it as editable would be a lie.
+    pub fn set_keys(&self) -> Vec<&'static str> {
+        let mut keys = Vec::new();
+        let mut note = |set: bool, key: &'static str| {
+            if set {
+                keys.push(key);
+            }
+        };
+
+        note(self.core.mode.is_some(), "core.mode");
+        note(self.optimization.enabled.is_some(), "optimization.enabled");
+        note(
+            self.optimization.target_reduction.is_some(),
+            "optimization.target_reduction",
+        );
+        note(self.retrieval.enabled.is_some(), "retrieval.enabled");
+        note(self.ranking.keyword.is_some(), "ranking.keyword");
+        note(self.ranking.semantic.is_some(), "ranking.semantic");
+        note(self.ranking.symbol.is_some(), "ranking.symbol");
+        note(self.ranking.graph.is_some(), "ranking.graph");
+        note(self.ranking.recency.is_some(), "ranking.recency");
+        note(self.ranking.hop_decay.is_some(), "ranking.hop_decay");
+        note(
+            self.ranking.expansion_depth.is_some(),
+            "ranking.expansion_depth",
+        );
+        note(
+            self.ranking.recency_half_life_days.is_some(),
+            "ranking.recency_half_life_days",
+        );
+        note(self.graph.enabled.is_some(), "graph.enabled");
+        note(self.storage.path.is_some(), "storage.path");
+        note(self.budget.default.is_some(), "budget.default");
+        note(self.daemon.enabled.is_some(), "daemon.enabled");
+        note(self.daemon.auto_start.is_some(), "daemon.auto_start");
+        note(self.daemon.bind.is_some(), "daemon.bind");
+        note(self.daemon.port.is_some(), "daemon.port");
+        note(self.watch.enabled.is_some(), "watch.enabled");
+        note(self.watch.debounce_ms.is_some(), "watch.debounce_ms");
+        note(
+            self.watch.poll_interval_ms.is_some(),
+            "watch.poll_interval_ms",
+        );
+        note(self.semantic.enabled.is_some(), "semantic.enabled");
+        note(self.semantic.provider.is_some(), "semantic.provider");
+        note(self.semantic.dimensions.is_some(), "semantic.dimensions");
+        note(
+            self.semantic.redundancy_threshold.is_some(),
+            "semantic.redundancy_threshold",
+        );
+        note(self.semantic.diversity.is_some(), "semantic.diversity");
+        note(self.metrics.enabled.is_some(), "metrics.enabled");
+        note(
+            self.metrics.raw_retention_days.is_some(),
+            "metrics.raw_retention_days",
+        );
+        note(
+            self.metrics.hourly_retention_days.is_some(),
+            "metrics.hourly_retention_days",
+        );
+        note(self.metrics.cost_model.is_some(), "metrics.cost_model");
+        note(
+            self.metrics.cost_per_million_input_tokens.is_some(),
+            "metrics.cost_per_million_input_tokens",
+        );
+        note(
+            self.metrics.cost_currency.is_some(),
+            "metrics.cost_currency",
+        );
+        note(self.dashboard.enabled.is_some(), "dashboard.enabled");
+        note(self.dashboard.port.is_some(), "dashboard.port");
+        note(self.telemetry.enabled.is_some(), "telemetry.enabled");
+
+        keys
+    }
+
+    /// Lay `update` on top of this layer, key by key.
+    ///
+    /// Only keys `update` actually sets are touched, for the same reason
+    /// [`Config::merge`] works that way: an edit to one setting must not quietly
+    /// promote every other default into a written decision.
+    pub fn overlay(&mut self, update: PartialConfig) {
+        macro_rules! take {
+            ($($section:ident . $field:ident),+ $(,)?) => {
+                $(if let Some(value) = update.$section.$field {
+                    self.$section.$field = Some(value);
+                })+
+            };
+        }
+
+        take!(
+            core.mode,
+            optimization.enabled,
+            optimization.target_reduction,
+            retrieval.enabled,
+            ranking.keyword,
+            ranking.semantic,
+            ranking.symbol,
+            ranking.graph,
+            ranking.recency,
+            ranking.hop_decay,
+            ranking.expansion_depth,
+            ranking.recency_half_life_days,
+            graph.enabled,
+            storage.path,
+            budget.default,
+            daemon.enabled,
+            daemon.auto_start,
+            daemon.bind,
+            daemon.port,
+            watch.enabled,
+            watch.debounce_ms,
+            watch.poll_interval_ms,
+            semantic.enabled,
+            semantic.provider,
+            semantic.dimensions,
+            semantic.redundancy_threshold,
+            semantic.diversity,
+            metrics.enabled,
+            metrics.raw_retention_days,
+            metrics.hourly_retention_days,
+            metrics.cost_model,
+            metrics.cost_per_million_input_tokens,
+            metrics.cost_currency,
+            dashboard.enabled,
+            dashboard.port,
+            telemetry.enabled,
+        );
+    }
+
+    /// Forget one key, so the layer below decides it again.
+    ///
+    /// Returns false for a name that is not a configuration key, which is how a
+    /// typed-in reset request is refused rather than silently ignored.
+    pub fn clear(&mut self, key: &str) -> bool {
+        macro_rules! clear {
+            ($($section:ident . $field:ident),+ $(,)?) => {
+                match key {
+                    $(concat!(stringify!($section), ".", stringify!($field)) => {
+                        self.$section.$field = None;
+                        true
+                    })+
+                    _ => false,
+                }
+            };
+        }
+
+        clear!(
+            core.mode,
+            optimization.enabled,
+            optimization.target_reduction,
+            retrieval.enabled,
+            ranking.keyword,
+            ranking.semantic,
+            ranking.symbol,
+            ranking.graph,
+            ranking.recency,
+            ranking.hop_decay,
+            ranking.expansion_depth,
+            ranking.recency_half_life_days,
+            graph.enabled,
+            storage.path,
+            budget.default,
+            daemon.enabled,
+            daemon.auto_start,
+            daemon.bind,
+            daemon.port,
+            watch.enabled,
+            watch.debounce_ms,
+            watch.poll_interval_ms,
+            semantic.enabled,
+            semantic.provider,
+            semantic.dimensions,
+            semantic.redundancy_threshold,
+            semantic.diversity,
+            metrics.enabled,
+            metrics.raw_retention_days,
+            metrics.hourly_retention_days,
+            metrics.cost_model,
+            metrics.cost_per_million_input_tokens,
+            metrics.cost_currency,
+            dashboard.enabled,
+            dashboard.port,
+            telemetry.enabled,
+        )
+    }
+
+    /// Render this layer as TOML, ready to be written to a file.
+    pub fn to_toml(&self) -> String {
+        // Every top-level field is a table and every value is a primitive, so
+        // serialization cannot fail and cannot produce a value-after-table
+        // document that TOML would reject.
+        toml::to_string_pretty(self).expect("a configuration layer is always serializable")
+    }
+
     /// Parse a layer from TOML text. `path` is used for error messages only.
     pub fn from_toml(text: &str, path: &Path) -> Result<Self> {
         toml::from_str(text).map_err(|source| Error::ConfigParse {

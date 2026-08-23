@@ -295,7 +295,7 @@ Use:
 
 The CLI should expose a stable command structure, and must never advertise a command that does not work: the command tree is the contract, not a wish list.
 
-The tree is organised around what a user is doing rather than around which crate does it. Content commands (`analyze`, `optimize`, `compile`, `capture`, `retrieve`) act on one piece of material. Project commands (`index`, `graph`, `search`, `similar`, `project`) act on a registered or indexed directory. Lifecycle commands (`start`, `stop`, `daemon`) manage the runtime. `ctxc start` and `ctxc stop` are the user-facing aliases for daemon lifecycle management; `ctxc daemon` remains available for lower-level control and diagnostics. Installation commands (`version`, `status`, `config`, `update`) describe and look after CtxC itself.
+The tree is organised around what a user is doing rather than around which crate does it. Content commands (`analyze`, `optimize`, `compile`, `capture`, `retrieve`) act on one piece of material. Project commands (`index`, `graph`, `search`, `similar`, `project`) act on a registered or indexed directory. Lifecycle commands (`start`, `stop`, `daemon`) manage the runtime. `ctxc start` is the user-facing alias for starting the daemon, and `ctxc stop` ends everything CtxC is running for a data directory — the daemon over its API, and every other recorded process by termination; `ctxc daemon` remains available for lower-level control and diagnostics, including stopping the daemon on its own. `ctxc_core::processes` holds the records and the platform lookups that say whether one is still there; only the CLI ends a process, so the daemon can report what a dashboard's stop button would leave running (`GET /v1/processes`) without a web page being able to terminate anything. Installation commands (`version`, `status`, `config`, `update`) describe and look after CtxC itself.
 
 The command surface as it exists today — every command, argument, and flag — is documented in [USAGE.md](USAGE.md#command-reference).
 
@@ -387,62 +387,53 @@ Do not require an LLM to understand source-code structure.
 
 Use a Rust Cargo workspace.
 
-Recommended initial structure:
-
 ```text
 ctxc/
 │
 ├── crates/
-│   ├── ctxc-cli/
-│   ├── ctxc-core/
-│   ├── ctxc-context/
-│   ├── ctxc-engine/
-│   ├── ctxc-optimizer/
-│   ├── ctxc-parser/
-│   ├── ctxc-graph/
-│   ├── ctxc-store/
-│   ├── ctxc-retrieval/
-│   ├── ctxc-project/
-│   ├── ctxc-watcher/
-│   ├── ctxc-metrics/
-│   ├── ctxc-daemon/
-│   ├── ctxc-api/
-│   ├── ctxc-proxy/
-│   └── ctxc-mcp/
-│
-├── dashboard/
-│   ├── src/
-│   ├── index.html
-│   ├── package.json
-│   └── vite.config.ts
-│
-├── integrations/
-│   ├── claude/
-│   ├── codex/
-│   ├── gemini/
-│   ├── cursor/
-│   ├── copilot/
-│   ├── cline/
-│   └── opencode/
-│
-├── tests/
-│   ├── fixtures/
-│   ├── integration/
-│   └── benchmarks/
-│
-├── docs/
+│   ├── ctxc-cli/            the `ctxc` binary; the daemon runs inside it
+│   ├── ctxc-core/           types, errors, config, platform paths
+│   ├── ctxc-context/        ingestion and provenance
+│   ├── ctxc-engine/         optimization and indexing orchestration
+│   ├── ctxc-optimizer/      the optimizers themselves
+│   ├── ctxc-parser/         tree-sitter extraction
+│   ├── ctxc-graph/          code intelligence model and dependency graph
+│   ├── ctxc-store/          SQLite schema, migrations and stores
+│   ├── ctxc-retrieval/      hybrid search and ranking
+│   ├── ctxc-semantic/       embeddings and similarity
+│   ├── ctxc-project/        the project registry and detection
+│   ├── ctxc-watcher/        filesystem watching and debouncing
+│   ├── ctxc-metrics/        collection, rollups and reporting
+│   ├── ctxc-daemon/         runtime, lockfile, supervisor
+│   ├── ctxc-api/            the local HTTP API
+│   ├── ctxc-integrations/   agent instruction files
+│   ├── ctxc-mcp/            the Model Context Protocol server
+│   └── ctxc-dashboard/      embedded web assets
+│       ├── build.rs         embeds ui/dist at compile time
+│       ├── src/
+│       └── ui/              React application (build-time only)
+│           ├── src/
+│           │   ├── components/
+│           │   ├── lib/
+│           │   └── pages/
+│           ├── index.html
+│           ├── package.json
+│           └── vite.config.ts
 │
 ├── Cargo.toml
 ├── README.md
 ├── ARCHITECTURE.md
+├── USAGE.md
 ├── LICENSE
 └── .github/
     └── workflows/
 ```
 
-`dashboard/` is a build-time-only directory. Its compiled assets are embedded into the CtxC binary during release builds.
+`ctxc-dashboard/ui/` is a build-time-only directory. Its compiled assets are embedded into the CtxC binary by `build.rs`, so the dashboard ships inside the binary rather than beside it.
 
-Node.js is required to build the dashboard, but never to run CtxC. A user who installs CtxC must not need Node, npm, or a separate web application install.
+Node.js is required to build the dashboard, but never to run CtxC. A user who installs CtxC must not need Node, npm, or a separate web application install. A build with no `ui/dist` produces a working binary that says the dashboard is not included, rather than one that serves a blank page.
+
+Tests live beside the code they test, in `#[cfg(test)]` modules, with end-to-end CLI tests in `crates/ctxc-cli/tests/`. Agent integrations are data inside `ctxc-integrations` rather than a directory of templates.
 
 ---
 
@@ -462,6 +453,7 @@ Responsibilities:
 - Context metadata
 - Error types
 - Shared traits
+- Configuration: loading the layers, and editing the one layer that is a file
 
 Example:
 
@@ -494,8 +486,11 @@ The runtime crates are described functionally later in this document:
 | `ctxc-metrics` | 29 |
 | `ctxc-api` | 31 |
 | `ctxc-daemon` | 24 |
+| `ctxc-dashboard` | 30 |
 
 Dependency direction must stay one-way. The engine must not depend on the watcher, the metrics subsystem, the API, or the dashboard. Those depend on the engine.
+
+`ctxc-dashboard` is the one crate that depends on nothing in the workspace: it holds bytes and content types, and knows nothing about what they render. `ctxc-api` serves them.
 
 ---
 
@@ -1099,6 +1094,8 @@ The daemon must be inspectable at any time without attaching a debugger or readi
 
 Status must always answer. A daemon that cannot be reached is reported as not running rather than as an error — the question "is anything running?" must never itself fail.
 
+A running daemon can also be asked the two things a status line has no room for: where this installation keeps its files and how large they have grown, and what the daemon has recently said. The second matters most for a daemon started detached, which has no terminal for its own output to appear in (see [section 38](#38-logging)).
+
 See [USAGE.md](USAGE.md#ctxc-status) for the command and its output.
 
 ### 24.2 Lifecycle
@@ -1458,93 +1455,98 @@ The dashboard is an optional local web UI backed by the daemon.
 
 It is served by the daemon on the daemon's own port, so there is no second server to run and no second port to authorize. Opening it is a matter of building a URL that carries the access token and handing it to a browser; see [USAGE.md](USAGE.md#ctxc-dashboard).
 
-### 30.1 Global Overview
+Optional does not mean secondary. For interactive use the dashboard is the primary surface: someone should be able to install CtxC, open it, and perform every ordinary management and monitoring task without learning the CLI. The CLI keeps the work a screen is bad at — automation, scripting, CI, pipelines, headless machines, and anything whose product is a stream.
+
+Both are interfaces over the same capabilities, and the rule that keeps them honest is the diagram above read strictly: the two surfaces meet at the daemon and nowhere else. Business logic, validation, project management, configuration handling and metrics stay in the core. A dashboard action is one call to a route `ctxc` can also call.
+
+When something is possible in one surface and not the other, the fix is a route, not a second implementation — and a command that genuinely belongs in a terminal says so rather than growing a button.
+
+### 30.1 Sections
+
+The dashboard is organised into eight sections, grouped by what a person is trying to do. Each one corresponds to work the CLI can also do; none of them is a capability that exists only here.
 
 ```text
-CtxC Overview
+Monitor    Overview      what CtxC has saved, and what the daemon is doing
+           Projects      the registry, and one project in detail
+           Activity      every operation as it happens
+           Performance   savings over time, by stage and by operation
 
-Projects                    7
-Active Projects             3
-Total Optimizations    12,482
-Tokens Before           84.2M
-Tokens After            31.7M
-Tokens Saved            52.5M
-Reduction               62.3%
-Estimated Cost Saved   $84.21
+Work       Context       search the index, read a file, open a reference
+           Commands      the command surface, and where each one lives here
+
+Manage     Settings      the configuration file, edited a key at a time
+           System        daemon, storage, observation, logs, routes
 ```
 
-### 30.2 Project View
+Only sections backed by real functionality exist. A section is added when the API can answer it, not before.
+
+Navigation is a sidebar that names the current location, collapsing to icons on a narrow desktop and folding into a drawer on a phone. Locations live in the URL fragment, so a section — and one project inside it — can be linked to, bookmarked, and reached with the back button.
+
+### 30.2 Scope
+
+Two choices are shared by every section: which project, and how far back.
 
 ```text
-Project: acme-web
-
-Path:
-~/Projects/acme-web
-
-Status:
-● Watching
-
-Context Operations:
-2,431
-
-Tokens:
-Before:       18.4M
-After:         6.7M
-Saved:        11.7M
-
-Reduction:
-63.5%
-
-Cache Hit Rate:
-81%
-
-Files Indexed:
-4,821
-
-Last Activity:
-2 minutes ago
+      +-- project scope ---+
+      |                    |
+Overview  Projects  Activity  Performance  Context
+      |                    |
+      +-- time window -----+   (Overview, Performance)
 ```
 
-### 30.3 History
+They live above the pages rather than inside them, so narrowing to one project on one screen keeps it narrowed on the next, and so a live event re-reading a panel never resets either one. Both are remembered for the session and no longer: a window scoped to one project three weeks ago is a trap.
 
-Charts for:
+A scoped project that has been removed is dropped rather than kept, because every scoped read would otherwise fail with "not registered" — a confusing way to learn that something is gone.
 
-- Tokens before and after
-- Token savings over time
-- Number of optimizations
-- Average compression ratio
-- Cache hit rate
-- Context retrieval frequency
-- Optimization latency
-- Errors
+### 30.3 Project Management
 
-Example:
+The dashboard adds, pauses, resumes, re-indexes and removes projects through the HTTP API, using the same registry the CLI uses. A project opens into a detail view carrying its identity, detection results, index counts, dependency graph and recent savings.
+
+Nothing is applied optimistically. The daemon announces the change and the re-read that follows shows what actually happened, which matters when a directory has been deleted underneath a project or a watcher has fallen back to scanning.
+
+Removal is confirmed before it happens, and the confirmation says what is not being deleted: CtxC forgets the project and its index, and never touches the directory.
+
+### 30.4 Configuration
+
+The dashboard edits the configuration file. It holds no second copy of the configuration and no schema of its own: it reads the layers the daemon resolved, sends the keys someone changed, and lets the core validate the result.
 
 ```text
-Token Usage
-
-20M |       ╭──╮
-15M |   ╭───╯  ╰──╮
-10M |───╯         ╰───
- 5M |
-    +-------------------
-      Mon Tue Wed Thu Fri
+Settings screen
+      |
+      | PATCH /v1/config   { set: {...}, reset: [...] }
+      v
+ctxc-core::config_file
+      |
+      +-- merge into the file layer
+      +-- validate on top of the defaults
+      +-- write, preserving comments
+      v
+config.toml
 ```
 
-### 30.4 Project Management
+Three things are stated rather than hidden, because a settings screen that lies about them is worse than no settings screen at all:
+
+- a value fixed by a `CTXC_*` variable cannot be changed here, so its control is disabled rather than quietly ineffective;
+- a value written in the file is marked as such, and can be handed back to the built-in default;
+- the daemon reads its configuration once, at startup, so an edit it has not picked up yet is reported as needing a restart.
+
+A rejected edit leaves the file exactly as it was, and the message shown is the core's own — the same words `ctxc config` would have printed.
+
+### 30.5 Commands
+
+The dashboard carries a section describing the whole command surface: every command, its arguments, its options with their defaults, and examples.
+
+That description is not written by hand. The CLI builds it from the same `clap` definition that parses the command line and publishes it to the API at startup, so the page cannot document a flag the binary does not have, and cannot miss one it does.
 
 ```text
-Projects
-
-● acme-web          ~/Projects/acme-web
-● acme-api          ~/Projects/acme-api
-○ acme-docs         ~/Projects/acme-docs
-● acme-worker       ~/Projects/acme-worker
+clap definition  --(introspection)-->  catalog  --> GET /v1/commands --> Commands page
+      |
+      +--(parsing)--> the command line
 ```
 
-The dashboard should be able to add, pause, resume, and remove projects through the HTTP API, using the same registry the CLI uses.
+Each command also carries where its work is done in the dashboard, when it is done there at all. Commands whose product is a stream on stdout, or that wrap a process, speak a protocol on stdin, or replace the binary, say plainly that they need a terminal. Claiming a button exists for `ctxc optimize` would be worse than admitting it does not.
 
-### 30.5 Real-Time Updates
+### 30.6 Real-Time Updates
 
 The dashboard must update without a manual refresh.
 
@@ -1564,8 +1566,14 @@ Metrics updated
 WebSocket event
      |
      v
-Dashboard updates
+Dashboard re-reads what changed
 ```
+
+The socket is the notification, not the source of truth. An event says "something changed" and the affected panel re-reads it from the API, so a dropped frame costs a delay rather than a wrong number. A subscriber that falls behind is told how many events it missed, and treats everything on screen as suspect until it has read again.
+
+Events are counted per subject rather than globally — operations, projects, watching, configuration. A settings screen has no reason to re-read because a file was indexed, and a table of projects should not flicker every time an optimization is recorded.
+
+A manual refresh control exists as well, for the same reason the CLI does: something has to work when the stream does not. Refreshing re-reads; it never reloads the page, and it never resets the scope, the open section, or a form someone is halfway through.
 
 Live activity stream:
 
@@ -1581,7 +1589,7 @@ Activity
 
 This makes CtxC substantially easier to understand and debug.
 
-### 30.6 Technology
+### 30.7 Technology
 
 Do not build the dashboard with a Rust UI framework.
 
@@ -1606,7 +1614,9 @@ Stack:
 - TypeScript
 - Vite
 - Tailwind
-- shadcn/ui
+- shadcn/ui, copied into the project rather than installed
+- Radix primitives for the components that have to be accessible to get right — dialogs, menus, selects, tabs, tooltips
+- Recharts for the charts
 
 Constraints:
 
@@ -1615,15 +1625,26 @@ Constraints:
 - The dashboard is a client of the HTTP API and must have no privileged access to the core
 - The core must remain fully usable with the dashboard disabled or removed
 - The dashboard must not become a dependency of the optimization engine
+- The dashboard must never fetch anything at runtime: no CDN, no webfonts, no remote images
 
 Keeping the dashboard behind the HTTP API prevents it from contaminating the core.
 
-### 30.7 Dashboard Security
+Design decisions belong in one place. Colour, spacing, radius and typography are tokens in one stylesheet, in both themes, and components read the tokens rather than literals. A chart series and a status badge get their colour from the same source as everything else, so light and dark are one decision rather than a hundred.
+
+Three states are kept apart everywhere and never allowed to look alike: loading, empty, and failed. An empty panel says why it is empty and what would fill it. A failed one carries the daemon's own message and hint — the same words `ctxc` would have printed — and a way to try again.
+
+### 30.8 Dashboard Security
 
 - Bind to localhost by default
 - Require a local token for API access, generated by the daemon and passed by `ctxc dashboard`
 - Never expose the dashboard on a public interface without explicit configuration
 - Treat displayed context content as untrusted and escape it; context may contain arbitrary repository content
+
+The token arrives in the URL because a browser cannot be told to send a header. It is moved into session storage and stripped from the address bar on arrival: leaving it there would put it in the history, in a bookmark, and in whatever the user pastes when asking for help.
+
+A Content Security Policy allows the page to load nothing but itself, which is also what enforces the "never fetch anything" constraint above. `frame-ancestors` is sent as a response header rather than in the document, because a browser ignores it in a `<meta>` element — a policy that appears to be set and is not is worse than one that is absent.
+
+The dashboard renders repository content, so responses carrying it are served `nosniff`. Nothing on any screen is ever inserted as markup.
 
 ---
 
@@ -1631,14 +1652,17 @@ Keeping the dashboard behind the HTTP API prevents it from contaminating the cor
 
 The daemon exposes a local HTTP API. It is the daemon's only remote surface, and everything that talks to a running CtxC — the dashboard, the CLI's liveness checks, third-party tooling — goes through it.
 
-The surface is organised into five groups:
+The surface is organised into groups:
 
 ```text
-System      health, status, shutdown
-Projects    list, add, show, remove, pause, resume, reindex
-Context     search, optimize
-Metrics     summary, per project, timeseries, breakdown, activity
-Real-time   event stream
+System          health, status, diagnostics, logs, shutdown
+Projects        list, add, show, remove, pause, resume, reindex,
+                indexed file, dependency graph
+Context         search, optimize, retrieve a stored context
+Metrics         summary, per project, timeseries, breakdown, activity
+Configuration   read the layers, change the file layer
+Commands        the command surface this build accepts
+Real-time       event stream
 ```
 
 The event stream should publish:
@@ -1648,7 +1672,14 @@ The event stream should publish:
 - optimization results
 - metric updates
 - project status changes
+- configuration changes
 - errors and degradations
+
+Two of these describe the process rather than the data.
+
+`Configuration` is the only route that writes outside the database. It goes through the core's file editor (see [section 33](#33-configuration)), so the rules about what a partial layer means are stated once and obeyed by every caller.
+
+`Commands` and `logs` are process-scoped rather than daemon-scoped, because what they describe is: `tracing` has one subscriber per process, and the command tree the daemon should describe is the one belonging to the binary it is running inside. Both are published once at startup by whatever started the daemon. A process hosting the API that is not the `ctxc` binary answers "no catalog" rather than inventing one.
 
 Constraints:
 
@@ -1716,6 +1747,21 @@ The default location must be platform appropriate; Linux-specific paths must not
 Project configuration (see section 28) participates in this chain. A project may carry its own identity and settings so that they travel with the repository.
 
 Note that `[telemetry]` refers to external transmission and remains disabled by default. `[metrics]` is purely local and is unrelated to it.
+
+### 33.1 Editing the file layer
+
+Loading reads every layer. Writing touches exactly one: the file. It has one implementation, so that `ctxc config`, the HTTP API and anything added later change a file the same way.
+
+The rules that implementation enforces:
+
+- Only the keys an edit names are touched. Setting one value must not freeze every other default into the file, because a default that was never a decision must not become one.
+- The result is validated before anything is written. A rejected edit leaves the file exactly as it was.
+- Comments, key order and spacing survive. The file belongs to whoever wrote it, and an edit is not an excuse to reformat their notes.
+- A key can be removed as well as set, handing it back to the layer below.
+
+Only the file layer is editable. Environment variables and command-line arguments sit above it and keep winning; an edit that one of them shadows is reported as shadowed rather than silently ineffective.
+
+Nothing re-reads configuration while running. The daemon loads it once, at startup, and a change to the file reaches it when it is restarted — so an interface that offers to edit configuration has to be able to say that a restart is pending.
 
 The full set of keys, their defaults, their environment-variable equivalents, and the file locations are documented in [USAGE.md](USAGE.md#configuration).
 
@@ -1882,6 +1928,18 @@ Verbosity is selectable on the command line and overridable from the environment
 Diagnostic output goes to stderr, always. stdout belongs to command results, which may be machine readable, and a single stray log line on it corrupts a consumer's parse.
 
 Raising verbosity must show CtxC's own reasoning rather than a wall of dependency output: third-party crates stay quiet unless asked for by name.
+
+A second destination sits beside stderr: a bounded in-memory buffer the daemon serves over the API. The two answer different questions and carry their own filters.
+
+```text
+                +-- stderr        filtered by the flags, near-silent by default
+tracing event --+
+                +-- ring buffer   CtxC's own crates at info, always
+```
+
+Stderr shows what the person running the command asked to see. The buffer is what someone opens a diagnostics panel to read *after* something went wrong, on a daemon started with `--detach` that has no terminal at all — so it keeps informational records whatever the flags said.
+
+In memory rather than in a file, deliberately: CtxC must not start writing to somebody's disk forever as a side effect of running in the background, and a diagnostics panel only ever wants the recent past. The buffer is bounded, the oldest record is dropped to make room, and how many were dropped is reported rather than hidden.
 
 ---
 
@@ -2301,6 +2359,15 @@ Implement:
 - WebSocket event stream
 - Live activity feed
 - Project management from the UI
+
+Then make it the primary interactive surface, which is a second body of work and mostly a backend one — every control needs a route before it can exist:
+
+- Configuration editing, through the core's file editor
+- A command catalog derived from the CLI's own definitions
+- Context retrieval and indexed-file reads
+- Dependency graph summaries
+- Diagnostics and the in-memory log
+- Navigation, shared scope, and a command menu over all of it
 
 Commands:
 

@@ -25,6 +25,10 @@ pub fn run<W: Write>(app: &App, _printer: &mut Printer<W>) -> Result<()> {
         ctxc_mcp::tools::working_directory(),
     );
 
+    // An agent spawned this and may never reap it, so it records itself for
+    // `ctxc stop` to find. The guard clears the record when the session ends.
+    let _recorded = crate::commands::record(app, "mcp");
+
     tracing::info!(
         database = %app.database_path().display(),
         "MCP server ready on stdin"
