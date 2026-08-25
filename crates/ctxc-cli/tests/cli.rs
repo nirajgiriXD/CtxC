@@ -307,14 +307,17 @@ fn an_explicit_config_file_replaces_the_default() {
     assert_eq!(parsed["dashboard"]["port"].as_integer(), Some(9999));
 }
 
+/// `--help` lists the grouped commands and nothing else. Every older name
+/// still parses (see `old_names_still_work`), but a person reading help should
+/// not have to choose between twenty-one of them.
 #[test]
-fn unimplemented_commands_are_not_advertised() {
+fn help_lists_the_grouped_commands_only() {
     let sandbox = Sandbox::new("help");
     let output = sandbox.run(&["--help"]);
     assert_success(&output);
 
     // Command names only: a description may legitimately mention a word that
-    // is also the name of a command CtxC does not have yet.
+    // is also the name of a command.
     let text = stdout(&output);
     let listed: Vec<&str> = text
         .lines()
@@ -324,33 +327,21 @@ fn unimplemented_commands_are_not_advertised() {
         .filter_map(|line| line.split_whitespace().next())
         .collect();
 
-    for command in [
-        "analyze",
-        "optimize",
-        "compile",
-        "index",
-        "graph",
-        "search",
-        "similar",
-        "retrieve",
-        "capture",
-        "project",
-        "start",
-        "stop",
-        "daemon",
-        "metrics",
-        "integrations",
-        "mcp",
-        "dashboard",
-        "version",
-        "status",
-        "config",
-    ] {
-        assert!(
-            listed.contains(&command),
-            "help omits {command}: {listed:?}"
-        );
-    }
+    assert_eq!(
+        listed,
+        [
+            "optimize",
+            "find",
+            "project",
+            "start",
+            "stop",
+            "status",
+            "config",
+            "dashboard",
+            "update",
+        ],
+        "{text}"
+    );
 }
 
 /// Prose with a duplicated paragraph and ragged whitespace: something every
@@ -960,7 +951,7 @@ fn graph_refuses_an_unindexed_project() {
     assert_eq!(output.status.code(), Some(1));
     let message = stderr(&output);
     assert!(message.contains("has not been indexed"), "{message}");
-    assert!(message.contains("ctxc index"), "{message}");
+    assert!(message.contains("ctxc project index"), "{message}");
 }
 
 #[test]
@@ -1123,7 +1114,7 @@ fn search_refuses_an_unindexed_project() {
     let output = sandbox.run(&["search", "anything", "--path", path_str(&project)]);
     assert_eq!(output.status.code(), Some(1));
     assert!(
-        stderr(&output).contains("ctxc index"),
+        stderr(&output).contains("ctxc project index"),
         "{}",
         stderr(&output)
     );
@@ -2600,7 +2591,7 @@ fn installing_writes_guidance_and_leaves_the_rest_of_the_file_alone() {
 
     let contents = std::fs::read_to_string(&instructions).unwrap();
     assert!(contents.contains("Always run the tests."), "{contents}");
-    assert!(contents.contains("ctxc search"), "{contents}");
+    assert!(contents.contains("ctxc find"), "{contents}");
     assert!(contents.contains("ctxc:begin"), "{contents}");
 }
 
@@ -2727,7 +2718,7 @@ fn an_unknown_agent_is_refused_with_a_way_to_find_the_real_names() {
     assert!(!output.status.success());
     let text = stderr(&output);
     assert!(text.contains("no integration named `emacs`"), "{text}");
-    assert!(text.contains("ctxc integrations list"), "{text}");
+    assert!(text.contains("ctxc config agents list"), "{text}");
 }
 
 #[test]
@@ -3137,7 +3128,7 @@ fn similar_says_when_a_project_has_not_been_embedded_yet() {
 
     assert!(!output.status.success());
     assert!(
-        stderr(&output).contains("ctxc index"),
+        stderr(&output).contains("ctxc project index"),
         "{}",
         stderr(&output)
     );
@@ -3203,4 +3194,213 @@ fn an_unknown_embedding_provider_is_refused_with_the_names_that_work() {
         text.contains("hashed"),
         "a refusal should name what would have worked: {text}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// The grouped command surface.
+//
+// The behaviour these forms reach is already covered above under the older
+// names; what is tested here is that the new spelling reaches it.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn optimize_describes_one_input_with_dry_run() {
+    let sandbox = Sandbox::new("optimize-dry-run");
+    let input = sandbox.path("notes.txt");
+    std::fs::write(&input, SAMPLE).unwrap();
+
+    let output = sandbox.run(&[
+        "optimize",
+        "--dry-run",
+        path_str(&input),
+        "--format",
+        "json",
+    ]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(json["content_type"], "plain_text");
+    assert!(json["projected_tokens"].as_u64().unwrap() < json["tokens"].as_u64().unwrap());
+}
+
+#[test]
+fn optimize_compiles_when_it_is_given_several_inputs() {
+    let sandbox = Sandbox::new("optimize-many");
+    let first = sandbox.path("first.txt");
+    let second = sandbox.path("second.txt");
+    std::fs::write(&first, "alpha\n").unwrap();
+    std::fs::write(&second, "beta\n").unwrap();
+
+    let output = sandbox.run(&[
+        "optimize",
+        path_str(&first),
+        path_str(&second),
+        "--format",
+        "json",
+    ]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(json["sections"].as_array().unwrap().len(), 2);
+}
+
+#[test]
+fn optimize_runs_a_command_written_after_a_double_dash() {
+    let sandbox = Sandbox::new("optimize-capture");
+    let ctxc = env!("CARGO_BIN_EXE_ctxc");
+
+    let output = sandbox.run(&["optimize", "--format", "json", "--", ctxc, "version"]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(json["exit_code"], 0);
+    assert!(
+        json["source"].as_str().unwrap().contains("version"),
+        "{json}"
+    );
+}
+
+#[test]
+fn optimize_refuses_a_dry_run_it_cannot_honour() {
+    let sandbox = Sandbox::new("optimize-dry-run-refused");
+    let first = sandbox.path("first.txt");
+    let second = sandbox.path("second.txt");
+    std::fs::write(&first, SAMPLE).unwrap();
+    std::fs::write(&second, SAMPLE).unwrap();
+
+    let output = sandbox.run(&["optimize", "--dry-run", path_str(&first), path_str(&second)]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(
+        stderr(&output).contains("one input at a time"),
+        "{}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn find_searches_a_project_the_way_search_did() {
+    let sandbox = Sandbox::new("find-search");
+    let project = sample_project(&sandbox);
+    assert_success(&sandbox.run(&["project", "index", path_str(&project)]));
+
+    let output = sandbox.run(&[
+        "find",
+        "database",
+        "--path",
+        path_str(&project),
+        "--format",
+        "json",
+    ]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert!(json["files"].is_array(), "{json}");
+}
+
+#[test]
+fn find_recovers_a_reference_without_a_project() {
+    let sandbox = Sandbox::new("find-reference");
+    let input = sandbox.path("notes.txt");
+    std::fs::write(&input, SAMPLE).unwrap();
+
+    let optimized = sandbox.run(&["optimize", path_str(&input), "--format", "json"]);
+    assert_success(&optimized);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&optimized)).unwrap();
+    let reference = json["reference"].as_str().unwrap().to_string();
+
+    let recovered = sandbox.run(&["find", &reference]);
+    assert_success(&recovered);
+    assert_eq!(stdout(&recovered), SAMPLE);
+}
+
+#[test]
+fn project_index_and_graph_reach_the_same_work() {
+    let sandbox = Sandbox::new("project-index-graph");
+    let project = sample_project(&sandbox);
+
+    let indexed = sandbox.run(&["project", "index", path_str(&project), "--format", "json"]);
+    assert_success(&indexed);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&indexed)).unwrap();
+    assert_eq!(json["indexed"], 3);
+
+    let graph = sandbox.run(&["project", "graph", path_str(&project), "--format", "json"]);
+    assert_success(&graph);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&graph)).unwrap();
+    assert_eq!(json["edges"], 1);
+}
+
+#[test]
+fn status_reports_savings_only_when_asked_for_metrics() {
+    let sandbox = Sandbox::new("status-metrics");
+    assert_success(&sandbox.run_with_stdin(&["optimize"], "same line\n\n\nsame line\n"));
+
+    let output = sandbox.run(&["status", "--metrics", "--format", "json"]);
+    assert_success(&output);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(json["summary"]["operations"], 1, "{json}");
+
+    // Without the flag it is still the installation report.
+    let plain = sandbox.run(&["status", "--format", "json"]);
+    assert_success(&plain);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&plain)).unwrap();
+    assert!(json["daemon"].is_object(), "{json}");
+}
+
+#[test]
+fn config_agents_lists_the_integrations() {
+    let sandbox = Sandbox::new("config-agents");
+    let project = sample_project(&sandbox);
+
+    let output = sandbox.run(&[
+        "config",
+        "agents",
+        "list",
+        "--path",
+        path_str(&project),
+        "--format",
+        "json",
+    ]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert!(
+        !json["integrations"].as_array().unwrap().is_empty(),
+        "{json}"
+    );
+}
+
+/// A hidden command that no longer dispatches is worse than one that was
+/// removed outright, so each folded-in name is run for real, not just parsed.
+#[test]
+fn old_names_still_work() {
+    let sandbox = Sandbox::new("old-names");
+    let input = sandbox.path("notes.txt");
+    std::fs::write(&input, SAMPLE).unwrap();
+
+    assert_success(&sandbox.run(&["analyze", path_str(&input)]));
+    assert_success(&sandbox.run(&["compile", path_str(&input), path_str(&input)]));
+    assert_success(&sandbox.run(&["metrics"]));
+    assert_success(&sandbox.run(&["version"]));
+
+    let project = sample_project(&sandbox);
+    assert_success(&sandbox.run(&["index", path_str(&project)]));
+    assert_success(&sandbox.run(&["graph", path_str(&project)]));
+    assert_success(&sandbox.run(&["search", "database", "--path", path_str(&project)]));
+    assert_success(&sandbox.run(&["integrations", "list", "--path", path_str(&project)]));
+    assert_success(&sandbox.run(&["daemon", "status"]));
+}
+
+#[test]
+fn status_reports_the_daemon_in_full_when_asked() {
+    let sandbox = Sandbox::new("status-daemon-flag");
+
+    let output = sandbox.run(&["status", "--daemon", "--format", "json"]);
+    assert_success(&output);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(json["running"], false, "{json}");
+
+    // The same report the removed `ctxc daemon status` printed.
+    let old = sandbox.run(&["daemon", "status", "--format", "json"]);
+    assert_success(&old);
+    assert_eq!(stdout(&old), stdout(&output));
 }
