@@ -732,7 +732,7 @@ function ProjectDetailBody({
 
       <Section
         title="Recent savings"
-        description="From the same metrics `ctxc metrics --project` reports."
+        description="From the same metrics `ctxc status --metrics --project` reports."
       >
         <Card>
           <CardContent className="px-5 py-4">

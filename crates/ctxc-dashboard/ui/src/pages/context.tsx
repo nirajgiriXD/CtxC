@@ -1,8 +1,9 @@
 /**
  * Searching the index, and reading what came back.
  *
- * This is `ctxc search` and `ctxc retrieve` with a screen instead of a
- * terminal: the same routes, the same ranking, the same stored originals. What
+ * This is `ctxc find`, both halves of it — the search and the reference
+ * recovery — with a screen instead of a terminal: the same routes, the same
+ * ranking, the same stored originals. What
  * a screen adds is being able to open a result and read it without leaving the
  * list, and seeing *why* each file was chosen rather than only that it was.
  *
@@ -210,7 +211,7 @@ function SearchPanel() {
 
           <p className="text-muted-foreground mt-3 text-xs">
             Quoting a phrase keeps it together, the same way{" "}
-            <Code>ctxc search</Code> treats it.
+            <Code>ctxc find</Code> treats it.
           </p>
         </CardContent>
       </Card>
@@ -479,7 +480,7 @@ function ReferencePanel() {
           </form>
           <p className="text-muted-foreground mt-3 text-xs">
             Optimized output carries one of these. Opening it gives back the
-            original, exactly as <Code>ctxc retrieve</Code> would. The id on its
+            original, exactly as <Code>ctxc find</Code> would. The id on its
             own works too.
           </p>
         </CardContent>
@@ -548,7 +549,7 @@ function GraphPanel({ revision }: { revision: number }) {
   return (
     <Section
       title={`${selected?.name ?? "Project"} dependencies`}
-      description="The same summary `ctxc graph` prints."
+      description="The same summary `ctxc project graph` prints."
     >
       <Card>
         <CardContent className="px-5 py-4">

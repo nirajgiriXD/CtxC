@@ -1,7 +1,7 @@
 /**
  * Savings over time, by stage and by operation.
  *
- * The same numbers `ctxc metrics --breakdown --by day` prints, from the same
+ * The same numbers `ctxc status --metrics --breakdown --by day` prints, from the same
  * routes. Charts here are for shape and comparison; the tables underneath carry
  * the figures, because a chart is a bad place to read an exact number from.
  */
@@ -99,7 +99,7 @@ export function Performance({ revision }: { revision: number }) {
             hint={
               <>
                 Metrics come from operations that actually ran. Widen the window,
-                or run something — <Code>ctxc index .</Code> is enough.
+                or run something — <Code>ctxc project index .</Code> is enough.
               </>
             }
           />

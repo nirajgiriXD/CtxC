@@ -3,7 +3,7 @@
  *
  * Everything here goes through the same HTTP API the CLI uses, with the same
  * token and no privileges of its own. If a number can be seen here, it can be
- * seen from `ctxc metrics` too, and every button on a screen is one call to a
+ * seen from `ctxc status --metrics` too, and every button on a screen is one call to a
  * route `ctxc` can call as well — that is deliberate, and it is what keeps the
  * dashboard from growing logic that belongs in the core.
  */
@@ -67,7 +67,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new RequestFailed(
       0,
       "the daemon is not answering",
-      "check it is running with `ctxc daemon status`",
+      "check it is running with `ctxc status --daemon`",
     );
   }
 
