@@ -91,6 +91,11 @@ pub fn run<W: Write>(
             let report = init(app, *force)?;
             printer.emit(&report)?;
         }
+        // Agent guidance is configuration too — it is just written into files
+        // the agents read rather than into CtxC's own.
+        ConfigAction::Agents { action } => {
+            return super::integrations::run(app, action.as_ref(), printer);
+        }
     }
     Ok(())
 }

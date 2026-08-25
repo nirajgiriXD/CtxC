@@ -41,6 +41,7 @@ pub fn build() -> Catalog {
         about: root.get_about().map(ToString::to_string),
         commands: root
             .get_subcommands()
+            .filter(|command| !command.is_hide_set())
             .map(|command| describe(command, "", &global_ids))
             .collect(),
         global_options: global,
@@ -97,6 +98,7 @@ fn describe(command: &Command, parent: &str, global_ids: &[String]) -> CommandIn
         dashboard: equivalent(&path),
         subcommands: command
             .get_subcommands()
+            .filter(|child| !child.is_hide_set())
             .map(|child| describe(child, &path, global_ids))
             .collect(),
         arguments,
@@ -178,28 +180,38 @@ fn usage(path: &str, arguments: &[ArgumentInfo], has_options: bool, command: &Co
 /// flags do.
 fn examples(path: &str) -> Vec<String> {
     let lines: &[&str] = match path {
-        "analyze" => &["git status | ctxc analyze --from \"git status\""],
         "optimize" => &[
             "ctxc optimize notes.md --budget 2000",
-            "cargo test 2>&1 | ctxc optimize --from \"cargo test\"",
+            "ctxc optimize README.md src/lib.rs --budget 8000",
+            "ctxc optimize --dry-run notes.md",
+            "git status | ctxc optimize --from \"git status\"",
+            "ctxc optimize --budget 1500 -- cargo test",
         ],
-        "compile" => &["ctxc compile README.md src/lib.rs --budget 8000"],
-        "capture" => &["ctxc capture --budget 1500 -- cargo test"],
-        "index" => &["ctxc index .", "ctxc index . --force"],
-        "search" => &[
-            "ctxc search \"auth timeout\"",
-            "ctxc search \"retry policy\" --compile --budget 4000",
+        "find" => &[
+            "ctxc find \"auth timeout\"",
+            "ctxc find \"retry policy\" --compile --budget 4000",
+            "ctxc find \"connection refused\" --similar --limit 5",
+            "ctxc find ctxc://context/9f2c1d",
         ],
-        "similar" => &["ctxc similar \"connection refused\" --limit 5"],
-        "graph" => &["ctxc graph .", "ctxc graph . --file src/main.rs"],
-        "retrieve" => &["ctxc retrieve ctxc://context/9f2c1d"],
         "project add" => &["ctxc project add . --index"],
-        "metrics" => &["ctxc metrics --days 7 --breakdown"],
-        "start" => &["ctxc start --detach"],
+        "project index" => &["ctxc project index .", "ctxc project index . --force"],
+        "project graph" => &[
+            "ctxc project graph .",
+            "ctxc project graph . --file src/main.rs",
+        ],
+        "status" => &[
+            "ctxc status",
+            "ctxc status --daemon",
+            "ctxc status --metrics --days 7 --breakdown",
+        ],
+        "start" => &["ctxc start", "ctxc start --detach"],
         "stop" => &["ctxc stop", "ctxc stop --all"],
         "config" => &["ctxc config show", "ctxc config init"],
+        "config agents" => &[
+            "ctxc config agents list",
+            "ctxc config agents install --detected",
+        ],
         "update" => &["ctxc update --check"],
-        "mcp" => &["ctxc mcp"],
         _ => &[],
     };
     lines.iter().map(|line| line.to_string()).collect()
@@ -209,21 +221,18 @@ fn examples(path: &str) -> Vec<String> {
 fn equivalent(path: &str) -> Option<DashboardEquivalent> {
     let (route, label) = match path {
         "status" => ("/system", "System status"),
-        "version" => ("/system", "About this build"),
-        "daemon" | "daemon status" => ("/system", "Daemon status"),
-        "daemon stop" => ("/system", "Stop daemon & dashboard"),
+        "stop" => ("/system", "Stop daemon & dashboard"),
         "config" | "config show" | "config path" | "config init" => ("/settings", "Settings"),
-        "metrics" => ("/performance", "Performance"),
+        "config agents" => ("/settings", "Agent integrations"),
         "project" | "project list" => ("/projects", "Projects"),
         "project add" => ("/projects", "Add project"),
         "project status" => ("/projects", "Project details"),
         "project pause" => ("/projects", "Pause monitoring"),
         "project resume" => ("/projects", "Resume monitoring"),
         "project remove" => ("/projects", "Remove project"),
-        "index" => ("/projects", "Re-index"),
-        "search" => ("/context", "Search"),
-        "retrieve" => ("/context", "Open a reference"),
-        "graph" => ("/context", "Dependency graph"),
+        "project index" => ("/projects", "Re-index"),
+        "project graph" => ("/context", "Dependency graph"),
+        "find" => ("/context", "Search"),
         "dashboard" => ("/", "You are looking at it"),
         // Everything else is a terminal shape: content on stdout, a process to
         // wrap, a protocol on stdin, or a rebuild of this binary.
@@ -242,11 +251,46 @@ mod tests {
 
         assert_eq!(catalog.name, "ctxc");
         assert!(catalog.find("project add").is_some());
+        assert!(catalog.find("project index").is_some());
         assert!(catalog.find("config init").is_some());
+        assert!(catalog.find("config agents install").is_some());
         assert!(
             catalog.find("status").is_some(),
             "a top-level command must be reachable"
         );
+    }
+
+    /// The dashboard lists what a person should learn, not every name the
+    /// binary still answers to.
+    #[test]
+    fn commands_kept_only_for_compatibility_stay_out_of_the_catalog() {
+        let catalog = build();
+        let top: Vec<&str> = catalog
+            .commands
+            .iter()
+            .map(|command| command.name.as_str())
+            .collect();
+
+        assert_eq!(
+            top,
+            [
+                "optimize",
+                "find",
+                "project",
+                "start",
+                "stop",
+                "status",
+                "config",
+                "dashboard",
+                "update",
+            ]
+        );
+
+        for gone in [
+            "analyze", "compile", "capture", "index", "graph", "metrics", "daemon", "mcp",
+        ] {
+            assert!(catalog.find(gone).is_none(), "{gone} is still catalogued");
+        }
     }
 
     #[test]
@@ -285,12 +329,12 @@ mod tests {
             "a flag takes no value and must not advertise a placeholder"
         );
 
-        let search = catalog.find("search").unwrap();
-        let limit = search
+        let find = catalog.find("find").unwrap();
+        let limit = find
             .options
             .iter()
             .find(|option| option.name == "limit")
-            .expect("`--limit` is an option of `search`");
+            .expect("`--limit` is an option of `find`");
         assert_eq!(limit.default.as_deref(), Some("20"));
         assert_eq!(limit.value_name.as_deref(), Some("COUNT"));
     }
@@ -303,8 +347,8 @@ mod tests {
             "ctxc project add [OPTIONS] <PATH>"
         );
         assert_eq!(
-            catalog.find("compile").unwrap().usage,
-            "ctxc compile [OPTIONS] <INPUT>..."
+            catalog.find("project index").unwrap().usage,
+            "ctxc project index [OPTIONS] [PATH]"
         );
         assert_eq!(
             catalog.find("project").unwrap().usage,
@@ -330,7 +374,7 @@ mod tests {
             catalog.find("optimize").unwrap().dashboard.is_none(),
             "a command whose product is a stream has no dashboard equivalent"
         );
-        assert!(catalog.find("mcp").unwrap().dashboard.is_none());
+        assert!(catalog.find("update").unwrap().dashboard.is_none());
     }
 
     #[test]

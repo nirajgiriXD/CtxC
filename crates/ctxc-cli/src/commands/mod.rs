@@ -23,11 +23,13 @@ pub mod update;
 pub mod version;
 
 use std::io::Write;
+use std::path::PathBuf;
 
 use anyhow::Result;
 
 use crate::app::App;
-use crate::cli::{Command, DaemonAction};
+use crate::cli::{Command, DaemonAction, OptimizeOptions, SearchOptions};
+use crate::error::CliError;
 use crate::output::Printer;
 
 /// Record a long-running process so `ctxc stop` can find it later.
@@ -45,23 +47,72 @@ pub(crate) fn record(app: &App, command: &str) -> Option<ctxc_core::processes::R
 }
 
 /// Dispatch a parsed command.
+///
+/// The first arm of each group is the advertised command; the arms below the
+/// divider are the names CtxC answered to before the command tree was grouped,
+/// and they route to exactly the same work.
 pub fn dispatch<W: Write>(command: &Command, app: &App, printer: &mut Printer<W>) -> Result<()> {
     match command {
-        Command::Analyze { input, source } => {
-            analyze::run(app, input.as_deref(), source.from.as_deref(), printer)
-        }
         Command::Optimize {
-            input,
+            inputs,
+            dry_run,
+            command,
             source,
             options,
-        } => optimize::optimize(
+        } => optimize_input(
             app,
-            input.as_deref(),
+            inputs,
+            *dry_run,
+            command,
             source.from.as_deref(),
             options,
             printer,
         ),
+
+        Command::Find {
+            query,
+            path,
+            similar,
+            options,
+        } => find(app, query, path.as_ref(), *similar, options, printer),
+
+        Command::Project { action } => project::run(app, action, printer),
+        Command::Start { detach } => daemon::start(app, *detach, printer),
+        Command::Stop { all } => stop::run(app, *all, printer),
+
+        Command::Status {
+            daemon: only_daemon,
+            metrics: saving,
+            options,
+        } => {
+            if *only_daemon {
+                daemon::status(app, printer)
+            } else if *saving {
+                metrics::run(app, options, printer)
+            } else {
+                status::run(app, printer)
+            }
+        }
+
+        Command::Config { action } => config::run(app, action.as_ref(), printer),
+        Command::Dashboard { no_open } => dashboard::run(app, !no_open, printer),
+        Command::Update { options } => update::run(app, options, printer),
+        Command::Mcp => mcp::run(app, printer),
+
+        // ---- names kept so older scripts keep working ----
+        Command::Analyze { input, source } => {
+            analyze::run(app, input.as_deref(), source.from.as_deref(), printer)
+        }
+        Command::Compile { inputs, options } => optimize::compile(app, inputs, options, printer),
         Command::Capture { command, options } => optimize::capture(app, command, options, printer),
+        Command::Similar { query, path, limit } => similar::run(
+            app,
+            query,
+            &index::root_or_current(path.as_ref()),
+            *limit,
+            printer,
+        ),
+        Command::Retrieve { reference } => search::retrieve(app, reference, printer),
         Command::Index { path, force } => {
             index::index(app, &index::root_or_current(path.as_ref()), *force, printer)
         }
@@ -72,42 +123,94 @@ pub fn dispatch<W: Write>(command: &Command, app: &App, printer: &mut Printer<W>
             *limit,
             printer,
         ),
-        Command::Search {
-            query,
-            path,
-            options,
-        } => search::search(
-            app,
-            query,
-            &index::root_or_current(path.as_ref()),
-            options,
-            printer,
-        ),
-        Command::Similar { query, path, limit } => similar::run(
-            app,
-            query,
-            &index::root_or_current(path.as_ref()),
-            *limit,
-            printer,
-        ),
-        Command::Retrieve { reference } => search::retrieve(app, reference, printer),
-        Command::Compile { inputs, options } => optimize::compile(app, inputs, options, printer),
-        Command::Project { action } => project::run(app, action, printer),
-        Command::Start { detach } => daemon::start(app, *detach, printer),
-        Command::Stop { all } => stop::run(app, *all, printer),
+        Command::Metrics { options } => metrics::run(app, options, printer),
+        Command::Integrations { action } => integrations::run(app, action.as_ref(), printer),
         Command::Daemon { action } => match action {
-            Some(DaemonAction::Start) => daemon::start(app, true, printer),
-            Some(DaemonAction::Stop) => daemon::stop(app, printer),
+            Some(DaemonAction::Start { detach }) => daemon::start(app, *detach, printer),
+            Some(DaemonAction::Stop { all }) => stop::run(app, *all, printer),
             Some(DaemonAction::Status) | None => daemon::status(app, printer),
         },
-        Command::Integrations { action } => integrations::run(app, action.as_ref(), printer),
-        Command::Mcp => mcp::run(app, printer),
-        Command::Metrics { options } => metrics::run(app, options, printer),
-        Command::Dashboard { no_open } => dashboard::run(app, !no_open, printer),
         Command::Version => version::run(printer),
-        Command::Update { options } => update::run(app, options, printer),
-
-        Command::Status => status::run(app, printer),
-        Command::Config { action } => config::run(app, action.as_ref(), printer),
     }
+}
+
+/// Route `ctxc optimize` to the work its arguments describe.
+///
+/// One command covers four shapes of the same job, because from the outside
+/// they are the same job: take input, spend fewer tokens saying it. Which
+/// optimizer runs is a detail of where the bytes came from.
+fn optimize_input<W: Write>(
+    app: &App,
+    inputs: &[PathBuf],
+    dry_run: bool,
+    command: &[String],
+    from: Option<&str>,
+    options: &OptimizeOptions,
+    printer: &mut Printer<W>,
+) -> Result<()> {
+    if !command.is_empty() {
+        if !inputs.is_empty() {
+            return Err(
+                CliError::new("files and a command cannot be optimized together")
+                    .with_hint("run `ctxc optimize` once for the files and once for the command")
+                    .into(),
+            );
+        }
+        if dry_run {
+            return Err(
+                CliError::new("--dry-run cannot describe output that does not exist yet")
+                    .with_hint("the command has to run before there is anything to measure")
+                    .into(),
+            );
+        }
+        return optimize::capture(app, command, options, printer);
+    }
+
+    if dry_run {
+        if inputs.len() > 1 {
+            return Err(CliError::new("--dry-run describes one input at a time")
+                .with_hint("pass a single file, or drop --dry-run to compile them all")
+                .into());
+        }
+        return analyze::run(app, inputs.first().map(PathBuf::as_path), from, printer);
+    }
+
+    if inputs.len() > 1 {
+        return optimize::compile(app, inputs, options, printer);
+    }
+
+    optimize::optimize(
+        app,
+        inputs.first().map(PathBuf::as_path),
+        from,
+        options,
+        printer,
+    )
+}
+
+/// Route `ctxc find` to the retrieval it describes.
+fn find<W: Write>(
+    app: &App,
+    query: &str,
+    path: Option<&PathBuf>,
+    similar_only: bool,
+    options: &SearchOptions,
+    printer: &mut Printer<W>,
+) -> Result<()> {
+    // A reference is not a question: it names one stored context exactly, so
+    // there is nothing to rank and no project to rank it against.
+    if query.starts_with(ctxc_core::id::URI_PREFIX) {
+        if similar_only {
+            return Err(CliError::new("a reference has nothing to compare against")
+                .with_hint("drop --similar to recover what the reference points at")
+                .into());
+        }
+        return search::retrieve(app, query, printer);
+    }
+
+    let root = index::root_or_current(path);
+    if similar_only {
+        return similar::run(app, query, &root, options.limit, printer);
+    }
+    search::search(app, query, &root, options, printer)
 }

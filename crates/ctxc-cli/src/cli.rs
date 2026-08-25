@@ -1,8 +1,12 @@
 //! Command line surface.
 //!
-//! The command tree follows the structure in ARCHITECTURE.md section 5; only
-//! the commands implemented in this phase are declared, so `ctxc --help` never
-//! advertises something that does not work.
+//! Nine commands are advertised, grouped by what a person is trying to do:
+//! shrink some input, find some context, look after a project, start and stop
+//! the daemon, see how things stand, configure, open the dashboard, upgrade.
+//!
+//! Every name CtxC used to have still parses, as a hidden command, so a script
+//! written against an older build keeps working. Hidden means absent from
+//! `--help`, not absent from the binary.
 
 use std::path::PathBuf;
 
@@ -40,84 +44,46 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Describe input and what optimizing it would save.
-    Analyze {
-        /// File to analyze. Omit it, or pass `-`, to read standard input.
-        #[arg(value_name = "INPUT")]
-        input: Option<PathBuf>,
-
-        #[command(flatten)]
-        source: SourceOptions,
-    },
-
     /// Optimize input and write the result to stdout.
+    ///
+    /// Takes one file, several files, standard input, or — after `--` — a
+    /// command whose output CtxC captures and optimizes:
+    ///
+    ///   ctxc optimize notes.md
+    ///   ctxc optimize README.md src/lib.rs --budget 8000
+    ///   git status | ctxc optimize --from "git status"
+    ///   ctxc optimize -- cargo test
     Optimize {
-        /// File to optimize. Omit it, or pass `-`, to read standard input.
+        /// Files to optimize, in the order they should appear. Omit them, or
+        /// pass `-`, to read standard input.
         #[arg(value_name = "INPUT")]
-        input: Option<PathBuf>,
-
-        #[command(flatten)]
-        source: SourceOptions,
-
-        #[command(flatten)]
-        options: OptimizeOptions,
-    },
-
-    /// Optimize several inputs into one AI-ready document.
-    Compile {
-        /// Files to compile, in the order they should appear. `-` reads
-        /// standard input.
-        #[arg(value_name = "INPUT", required = true)]
         inputs: Vec<PathBuf>,
 
+        /// Describe what optimizing would save, without producing it.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// A command to run, written after `--`. It is executed directly,
+        /// without a shell, and its output is what gets optimized.
+        #[arg(value_name = "COMMAND", last = true, allow_hyphen_values = true)]
+        command: Vec<String>,
+
+        #[command(flatten)]
+        source: SourceOptions,
+
         #[command(flatten)]
         options: OptimizeOptions,
-    },
-
-    /// Index a project's code: files, symbols and how they relate.
-    Index {
-        /// Project directory. Defaults to the current one.
-        #[arg(value_name = "PATH")]
-        path: Option<PathBuf>,
-
-        /// Re-parse every file, even ones that look unchanged.
-        #[arg(long)]
-        force: bool,
-    },
-
-    /// Show how a project's files depend on each other.
-    Graph {
-        /// Project directory. Defaults to the current one.
-        #[arg(value_name = "PATH")]
-        path: Option<PathBuf>,
-
-        /// Show one file's dependencies and dependents instead of a summary.
-        #[arg(long, value_name = "RELATIVE_PATH")]
-        file: Option<String>,
-
-        /// How many files to list in the summary.
-        #[arg(long, default_value_t = 10, value_name = "COUNT")]
-        limit: usize,
-    },
-
-    /// Find the files closest to a piece of text, by embedding similarity.
-    Similar {
-        /// The text to compare against. A phrase, a symbol name, an error.
-        #[arg(value_name = "TEXT")]
-        query: String,
-
-        /// Project directory. Defaults to the current one.
-        #[arg(long, value_name = "PATH")]
-        path: Option<PathBuf>,
-
-        /// How many files to list.
-        #[arg(long, default_value_t = 10, value_name = "COUNT")]
-        limit: usize,
     },
 
     /// Find the context most relevant to a question.
-    Search {
-        /// What to look for. Quote a phrase to keep it together.
+    ///
+    /// Searches the index by default. `--similar` ranks by embedding
+    /// similarity instead, and a `ctxc://context/<id>` query recovers the
+    /// original content behind that reference.
+    #[command(alias = "search")]
+    Find {
+        /// What to look for: a phrase, a symbol name, an error, or a
+        /// `ctxc://context/<id>` reference.
         #[arg(value_name = "QUERY")]
         query: String,
 
@@ -125,34 +91,15 @@ pub enum Command {
         #[arg(long, value_name = "PATH")]
         path: Option<PathBuf>,
 
+        /// Rank by embedding similarity alone, rather than searching the index.
+        #[arg(long)]
+        similar: bool,
+
         #[command(flatten)]
         options: SearchOptions,
     },
 
-    /// Recover the original content behind a `ctxc://context/<id>` reference.
-    Retrieve {
-        /// The reference, or just the id.
-        #[arg(value_name = "REFERENCE")]
-        reference: String,
-    },
-
-    /// Run a command and optimize what it prints.
-    Capture {
-        /// The command to run, after `--`. It is executed directly, without a
-        /// shell.
-        #[arg(
-            value_name = "COMMAND",
-            required = true,
-            trailing_var_arg = true,
-            allow_hyphen_values = true
-        )]
-        command: Vec<String>,
-
-        #[command(flatten)]
-        options: OptimizeOptions,
-    },
-
-    /// Manage the projects CtxC looks after.
+    /// Manage the projects CtxC looks after, and what it knows about them.
     Project {
         #[command(subcommand)]
         action: ProjectAction,
@@ -172,27 +119,24 @@ pub enum Command {
         all: bool,
     },
 
-    /// Lower-level daemon control and diagnostics.
-    Daemon {
-        #[command(subcommand)]
-        action: Option<DaemonAction>,
-    },
+    /// Show the state of this CtxC installation.
+    Status {
+        /// Report the running daemon in full: uptime, projects, what it watches.
+        #[arg(long)]
+        daemon: bool,
 
-    /// Show what CtxC has saved, and where the saving came from.
-    Metrics {
+        /// Show what CtxC has saved, and where the saving came from, instead.
+        #[arg(long, conflicts_with = "daemon")]
+        metrics: bool,
+
         #[command(flatten)]
         options: MetricsOptions,
     },
 
-    /// Serve CtxC over the Model Context Protocol, on stdin and stdout.
-    ///
-    /// Agents spawn this; people rarely run it directly.
-    Mcp,
-
-    /// Tell coding agents about CtxC.
-    Integrations {
+    /// Inspect configuration, and set up the agents that use CtxC.
+    Config {
         #[command(subcommand)]
-        action: Option<IntegrationAction>,
+        action: Option<ConfigAction>,
     },
 
     /// Open the local dashboard in a browser.
@@ -202,26 +146,124 @@ pub enum Command {
         no_open: bool,
     },
 
-    /// Print version and build information.
-    Version,
-
     /// Update CtxC: fetch the latest source, build it, replace this binary.
     Update {
         #[command(flatten)]
         options: UpdateOptions,
     },
 
-    /// Show the state of this CtxC installation.
-    Status,
+    /// Serve CtxC over the Model Context Protocol, on stdin and stdout.
+    ///
+    /// Agents spawn this; people rarely run it directly, which is why it is
+    /// not advertised in `--help`.
+    #[command(hide = true)]
+    Mcp,
 
-    /// Inspect and create configuration.
-    Config {
-        #[command(subcommand)]
-        action: Option<ConfigAction>,
+    /// Superseded by `ctxc optimize --dry-run`.
+    #[command(hide = true)]
+    Analyze {
+        #[arg(value_name = "INPUT")]
+        input: Option<PathBuf>,
+
+        #[command(flatten)]
+        source: SourceOptions,
     },
+
+    /// Superseded by `ctxc optimize` with several inputs.
+    #[command(hide = true)]
+    Compile {
+        #[arg(value_name = "INPUT", required = true)]
+        inputs: Vec<PathBuf>,
+
+        #[command(flatten)]
+        options: OptimizeOptions,
+    },
+
+    /// Superseded by `ctxc optimize -- <COMMAND>`.
+    #[command(hide = true)]
+    Capture {
+        #[arg(
+            value_name = "COMMAND",
+            required = true,
+            trailing_var_arg = true,
+            allow_hyphen_values = true
+        )]
+        command: Vec<String>,
+
+        #[command(flatten)]
+        options: OptimizeOptions,
+    },
+
+    /// Superseded by `ctxc find --similar`.
+    #[command(hide = true)]
+    Similar {
+        #[arg(value_name = "TEXT")]
+        query: String,
+
+        #[arg(long, value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        #[arg(long, default_value_t = 10, value_name = "COUNT")]
+        limit: usize,
+    },
+
+    /// Superseded by `ctxc find <REFERENCE>`.
+    #[command(hide = true)]
+    Retrieve {
+        #[arg(value_name = "REFERENCE")]
+        reference: String,
+    },
+
+    /// Superseded by `ctxc project index`.
+    #[command(hide = true)]
+    Index {
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Superseded by `ctxc project graph`.
+    #[command(hide = true)]
+    Graph {
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        #[arg(long, value_name = "RELATIVE_PATH")]
+        file: Option<String>,
+
+        #[arg(long, default_value_t = 10, value_name = "COUNT")]
+        limit: usize,
+    },
+
+    /// Superseded by `ctxc status --metrics`.
+    #[command(hide = true)]
+    Metrics {
+        #[command(flatten)]
+        options: MetricsOptions,
+    },
+
+    /// Superseded by `ctxc config agents`.
+    #[command(hide = true)]
+    Integrations {
+        #[command(subcommand)]
+        action: Option<IntegrationAction>,
+    },
+
+    /// Superseded by `ctxc start`, `ctxc stop` and `ctxc status --daemon`.
+    #[command(hide = true)]
+    Daemon {
+        #[command(subcommand)]
+        action: Option<DaemonAction>,
+    },
+
+    /// Superseded by `ctxc --version`.
+    #[command(hide = true)]
+    Version,
 }
 
-/// What `ctxc integrations` can do.
+/// What `ctxc config agents` can do.
 #[derive(Debug, Subcommand)]
 pub enum IntegrationAction {
     /// Show which agents are here and which have CtxC guidance.
@@ -290,7 +332,7 @@ pub struct UpdateOptions {
     pub no_dashboard: bool,
 }
 
-/// Shared options for `ctxc metrics`.
+/// Shared options for `ctxc status --metrics`.
 #[derive(Debug, clap::Args)]
 pub struct MetricsOptions {
     /// Restrict to one project, by id, path or name.
@@ -338,6 +380,32 @@ pub enum ProjectAction {
         project: String,
     },
 
+    /// Read a project's code: files, symbols and how they relate.
+    Index {
+        /// Project directory. Defaults to the current one.
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Re-parse every file, even ones that look unchanged.
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Show how a project's files depend on each other.
+    Graph {
+        /// Project directory. Defaults to the current one.
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Show one file's dependencies and dependents instead of a summary.
+        #[arg(long, value_name = "RELATIVE_PATH")]
+        file: Option<String>,
+
+        /// How many files to list in the summary.
+        #[arg(long, default_value_t = 10, value_name = "COUNT")]
+        limit: usize,
+    },
+
     /// Stop looking after a project, without forgetting it.
     Pause {
         #[arg(value_name = "PROJECT")]
@@ -363,17 +431,26 @@ pub enum ProjectAction {
     },
 }
 
-/// What `ctxc daemon` can do.
+/// What the hidden `ctxc daemon` still answers to.
+///
+/// `start` and `stop` are top-level commands, and `ctxc status --daemon` is
+/// the report; this exists so a script written against the old tree runs.
 #[derive(Debug, Subcommand)]
 pub enum DaemonAction {
-    /// Report whether a daemon is running.
+    /// Superseded by `ctxc status --daemon`.
     Status,
 
-    /// Start one in the background.
-    Start,
+    /// Superseded by `ctxc start`.
+    Start {
+        #[arg(long)]
+        detach: bool,
+    },
 
-    /// Stop the running one.
-    Stop,
+    /// Superseded by `ctxc stop`.
+    Stop {
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 /// Where input came from, when CtxC cannot see that for itself.
@@ -389,7 +466,7 @@ pub struct SourceOptions {
     pub from: Option<String>,
 }
 
-/// Options for `ctxc search`.
+/// Options for `ctxc find`.
 #[derive(Debug, clap::Args)]
 pub struct SearchOptions {
     /// Maximum number of results.
@@ -437,6 +514,12 @@ pub enum ConfigAction {
         /// Overwrite an existing file.
         #[arg(long)]
         force: bool,
+    },
+
+    /// Tell coding agents about CtxC.
+    Agents {
+        #[command(subcommand)]
+        action: Option<IntegrationAction>,
     },
 }
 
@@ -496,6 +579,31 @@ mod tests {
         assert!(matches!(cli.command, Command::Config { action: None }));
     }
 
+    /// The commands `--help` advertises, and nothing else.
+    #[test]
+    fn only_the_grouped_commands_are_advertised() {
+        let listed: Vec<String> = Cli::command()
+            .get_subcommands()
+            .filter(|command| !command.is_hide_set())
+            .map(|command| command.get_name().to_string())
+            .collect();
+
+        assert_eq!(
+            listed,
+            [
+                "optimize",
+                "find",
+                "project",
+                "start",
+                "stop",
+                "status",
+                "config",
+                "dashboard",
+                "update",
+            ]
+        );
+    }
+
     #[test]
     fn the_dashboard_opens_a_browser_unless_told_not_to() {
         let cli = Cli::try_parse_from(["ctxc", "dashboard"]).unwrap();
@@ -511,16 +619,48 @@ mod tests {
         assert!(Cli::try_parse_from(["ctxc", "start", "--detach"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "stop"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "stop", "--all"]).is_ok());
-        assert!(Cli::try_parse_from(["ctxc", "daemon"]).is_ok());
-        assert!(Cli::try_parse_from(["ctxc", "daemon", "status"]).is_ok());
+        assert!(Cli::try_parse_from(["ctxc", "status", "--daemon"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "project", "add", "."]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "project", "list"]).is_ok());
         assert!(Cli::try_parse_from(["ctxc", "project", "pause", "acme"]).is_ok());
+        assert!(Cli::try_parse_from(["ctxc", "project", "index", "."]).is_ok());
+        assert!(Cli::try_parse_from(["ctxc", "project", "graph", "--file", "a.rs"]).is_ok());
+        assert!(Cli::try_parse_from(["ctxc", "config", "agents", "list"]).is_ok());
 
         assert!(
             Cli::try_parse_from(["ctxc", "project", "add"]).is_err(),
             "adding a project needs a path"
         );
+    }
+
+    /// Names from before the regrouping still parse, so scripts keep working.
+    #[test]
+    fn the_old_names_still_parse() {
+        for old in [
+            &["analyze", "notes.txt"][..],
+            &["compile", "a.txt", "b.txt"][..],
+            &["capture", "--", "git", "status"][..],
+            &["similar", "text"][..],
+            &["retrieve", "ctxc://context/abc"][..],
+            &["index", "."][..],
+            &["graph", "."][..],
+            &["metrics", "--days", "7"][..],
+            &["integrations", "list"][..],
+            &["search", "auth"][..],
+            &["daemon"][..],
+            &["daemon", "status"][..],
+            &["daemon", "start", "--detach"][..],
+            &["daemon", "stop", "--all"][..],
+            &["version"][..],
+            &["mcp"][..],
+        ] {
+            let mut argv = vec!["ctxc"];
+            argv.extend_from_slice(old);
+            assert!(
+                Cli::try_parse_from(&argv).is_ok(),
+                "{old:?} stopped parsing"
+            );
+        }
     }
 
     #[test]
@@ -559,10 +699,10 @@ mod tests {
     }
 
     #[test]
-    fn search_takes_a_budget_and_a_compile_flag() {
+    fn find_takes_a_budget_and_a_compile_flag() {
         let cli = Cli::try_parse_from([
             "ctxc",
-            "search",
+            "find",
             "auth timeout",
             "--compile",
             "--budget",
@@ -570,8 +710,14 @@ mod tests {
         ])
         .unwrap();
         match cli.command {
-            Command::Search { query, options, .. } => {
+            Command::Find {
+                query,
+                similar,
+                options,
+                ..
+            } => {
                 assert_eq!(query, "auth timeout");
+                assert!(!similar);
                 assert!(options.compile);
                 assert_eq!(options.budget, Some(800));
                 assert!(!options.no_store);
@@ -581,34 +727,82 @@ mod tests {
     }
 
     #[test]
-    fn retrieve_takes_a_reference() {
-        let cli = Cli::try_parse_from(["ctxc", "retrieve", "ctxc://context/abc"]).unwrap();
-        assert!(matches!(cli.command, Command::Retrieve { .. }));
-        assert!(Cli::try_parse_from(["ctxc", "retrieve"]).is_err());
+    fn search_is_an_alias_for_find() {
+        let cli = Cli::try_parse_from(["ctxc", "search", "auth timeout"]).unwrap();
+        assert!(matches!(cli.command, Command::Find { .. }));
     }
 
     #[test]
-    fn optimize_input_is_optional_so_stdin_can_be_used() {
+    fn find_takes_a_similar_flag_and_a_reference() {
+        let cli = Cli::try_parse_from(["ctxc", "find", "connection refused", "--similar"]).unwrap();
+        assert!(matches!(cli.command, Command::Find { similar: true, .. }));
+
+        let cli = Cli::try_parse_from(["ctxc", "find", "ctxc://context/abc"]).unwrap();
+        match cli.command {
+            Command::Find { query, .. } => assert_eq!(query, "ctxc://context/abc"),
+            other => panic!("parsed as {other:?}"),
+        }
+    }
+
+    #[test]
+    fn optimize_accepts_stdin_one_file_or_many() {
         let cli = Cli::try_parse_from(["ctxc", "optimize"]).unwrap();
-        assert!(matches!(cli.command, Command::Optimize { input: None, .. }));
-        assert!(Cli::try_parse_from(["ctxc", "optimize", "notes.txt"]).is_ok());
+        match cli.command {
+            Command::Optimize {
+                inputs,
+                command,
+                dry_run,
+                ..
+            } => {
+                assert!(inputs.is_empty());
+                assert!(command.is_empty());
+                assert!(!dry_run);
+            }
+            other => panic!("parsed as {other:?}"),
+        }
+
+        let cli = Cli::try_parse_from(["ctxc", "optimize", "a.txt", "b.txt"]).unwrap();
+        match cli.command {
+            Command::Optimize { inputs, .. } => assert_eq!(inputs.len(), 2),
+            other => panic!("parsed as {other:?}"),
+        }
+
         assert!(Cli::try_parse_from(["ctxc", "optimize", "-"]).is_ok());
     }
 
     #[test]
-    fn capture_takes_a_command_and_its_flags() {
+    fn optimize_dry_run_replaces_analyze() {
+        let cli = Cli::try_parse_from(["ctxc", "optimize", "--dry-run", "notes.txt"]).unwrap();
+        match cli.command {
+            Command::Optimize {
+                dry_run, inputs, ..
+            } => {
+                assert!(dry_run);
+                assert_eq!(inputs, vec![PathBuf::from("notes.txt")]);
+            }
+            other => panic!("parsed as {other:?}"),
+        }
+    }
+
+    #[test]
+    fn optimize_takes_a_command_after_a_double_dash() {
         let cli = Cli::try_parse_from([
-            "ctxc", "capture", "--budget", "500", "--", "git", "-c", "x=y", "status",
+            "ctxc", "optimize", "--budget", "500", "--", "git", "-c", "x=y", "status",
         ])
         .unwrap();
         match cli.command {
-            Command::Capture { command, options } => {
+            Command::Optimize {
+                inputs,
+                command,
+                options,
+                ..
+            } => {
+                assert!(inputs.is_empty());
                 assert_eq!(command, vec!["git", "-c", "x=y", "status"]);
                 assert_eq!(options.budget, Some(500));
             }
             other => panic!("parsed as {other:?}"),
         }
-        assert!(Cli::try_parse_from(["ctxc", "capture"]).is_err());
     }
 
     #[test]
@@ -632,12 +826,37 @@ mod tests {
     }
 
     #[test]
-    fn compile_takes_several_inputs() {
-        let cli = Cli::try_parse_from(["ctxc", "compile", "a.txt", "b.txt"]).unwrap();
+    fn status_carries_the_metrics_flag() {
+        let cli = Cli::try_parse_from(["ctxc", "status"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Status {
+                metrics: false,
+                daemon: false,
+                ..
+            }
+        ));
+
+        let cli = Cli::try_parse_from(["ctxc", "status", "--daemon"]).unwrap();
+        assert!(matches!(cli.command, Command::Status { daemon: true, .. }));
+
+        assert!(
+            Cli::try_parse_from(["ctxc", "status", "--daemon", "--metrics"]).is_err(),
+            "two different reports cannot both be the answer"
+        );
+
+        let cli =
+            Cli::try_parse_from(["ctxc", "status", "--metrics", "--days", "7", "--breakdown"])
+                .unwrap();
         match cli.command {
-            Command::Compile { inputs, .. } => assert_eq!(inputs.len(), 2),
+            Command::Status {
+                metrics, options, ..
+            } => {
+                assert!(metrics);
+                assert_eq!(options.days, 7);
+                assert!(options.breakdown);
+            }
             other => panic!("parsed as {other:?}"),
         }
-        assert!(Cli::try_parse_from(["ctxc", "compile"]).is_err());
     }
 }

@@ -1,4 +1,4 @@
-//! `ctxc start`, `ctxc stop` and `ctxc daemon`.
+//! `ctxc start`, `ctxc stop` and `ctxc status --daemon`.
 //!
 //! `start` runs the daemon in this process by default, which is what makes it
 //! usable under a service manager, in a container, or in a terminal you can
@@ -17,7 +17,7 @@ use crate::app::App;
 use crate::error::CliError;
 use crate::output::{human_count, Printer, Render};
 
-/// What `ctxc daemon status` reports.
+/// What `ctxc status --daemon` reports.
 #[derive(Debug, Serialize)]
 pub struct DaemonReport {
     pub running: bool,
@@ -163,19 +163,6 @@ impl Render for StartedReport {
     }
 }
 
-/// Result of stopping one.
-#[derive(Debug, Serialize)]
-pub struct StoppedReport {
-    pub stopped: bool,
-    pub pid: u32,
-}
-
-impl Render for StoppedReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "Daemon stopped (pid {})", self.pid)
-    }
-}
-
 pub fn start<W: Write>(app: &App, detach: bool, printer: &mut Printer<W>) -> Result<()> {
     if detach {
         return start_detached(app, printer);
@@ -215,7 +202,7 @@ fn start_detached<W: Write>(app: &App, printer: &mut Printer<W>) -> Result<()> {
             "a daemon is already running (pid {}, port {})",
             lock.pid, lock.port
         ))
-        .with_hint("run `ctxc daemon status`, or stop it with `ctxc stop`")
+        .with_hint("run `ctxc status --daemon`, or stop it with `ctxc stop`")
         .into());
     }
 
@@ -322,15 +309,6 @@ fn wait_until_running(app: &App) -> Result<u16> {
     Err(CliError::new("the daemon did not start")
         .with_hint("run `ctxc start` in the foreground to see why")
         .into())
-}
-
-pub fn stop<W: Write>(app: &App, printer: &mut Printer<W>) -> Result<()> {
-    let lock = ctxc_daemon::stop(app.paths().data_dir())?;
-    printer.emit(&StoppedReport {
-        stopped: true,
-        pid: lock.pid,
-    })?;
-    Ok(())
 }
 
 pub fn status<W: Write>(app: &App, printer: &mut Printer<W>) -> Result<()> {

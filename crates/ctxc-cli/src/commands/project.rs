@@ -141,9 +141,33 @@ fn truncate(value: &str, width: usize) -> String {
 }
 
 pub fn run<W: Write>(app: &App, action: &ProjectAction, printer: &mut Printer<W>) -> Result<()> {
+    // Reading a project's code is about a directory, not about the registry,
+    // so these two run before a registry connection is opened at all.
+    match action {
+        ProjectAction::Index { path, force } => {
+            return super::index::index(
+                app,
+                &super::index::root_or_current(path.as_ref()),
+                *force,
+                printer,
+            );
+        }
+        ProjectAction::Graph { path, file, limit } => {
+            return super::index::graph(
+                app,
+                &super::index::root_or_current(path.as_ref()),
+                file.as_deref(),
+                *limit,
+                printer,
+            );
+        }
+        _ => {}
+    }
+
     let database = app.open_database()?;
 
     match action {
+        ProjectAction::Index { .. } | ProjectAction::Graph { .. } => unreachable!("handled above"),
         ProjectAction::Add { path, index } => add(app, &database, path, *index, printer),
         ProjectAction::List => list(&database, printer),
         ProjectAction::Status { project } => status(&database, project, printer),
