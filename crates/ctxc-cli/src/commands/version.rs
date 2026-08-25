@@ -1,4 +1,4 @@
-//! `ctxc version`
+//! `ctxc --version`
 
 use std::io::{self, Write};
 

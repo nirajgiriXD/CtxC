@@ -67,7 +67,7 @@ impl Render for DashboardReport {
 pub fn run<W: Write>(app: &App, open_browser: bool, printer: &mut Printer<W>) -> Result<()> {
     if !app.config.dashboard.enabled {
         return Err(CliError::new("the dashboard is disabled in configuration")
-            .with_hint("set dashboard.enabled = true, or run `ctxc metrics` instead")
+            .with_hint("set dashboard.enabled = true, or run `ctxc status --metrics` instead")
             .into());
     }
 

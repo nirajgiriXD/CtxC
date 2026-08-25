@@ -7,7 +7,7 @@
 //! command.
 //!
 //! Execution only ever happens because the user asked for it by running
-//! `ctxc capture`. Nothing in an optimized context can cause a command to run.
+//! `ctxc optimize -- <COMMAND>`. Nothing in an optimized context can cause a command to run.
 
 use std::process::{Command, Stdio};
 

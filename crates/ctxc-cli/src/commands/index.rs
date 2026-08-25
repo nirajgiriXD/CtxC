@@ -1,4 +1,4 @@
-//! `ctxc index`, `ctxc graph` and `ctxc search`.
+//! `ctxc project index` and `ctxc project graph`.
 //!
 //! The three views of the code index: build it, look at how files depend on
 //! each other, and find where something is defined.
@@ -199,7 +199,7 @@ pub fn graph<W: Write>(
             "{} has not been indexed",
             root.display()
         ))
-        .with_hint("run `ctxc index` first")
+        .with_hint("run `ctxc project index` first")
         .into());
     }
 

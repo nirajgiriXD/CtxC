@@ -64,7 +64,7 @@ impl DaemonError {
     pub fn hint(&self) -> Option<String> {
         match self {
             DaemonError::AlreadyRunning { .. } => {
-                Some("run `ctxc daemon status`, or stop it with `ctxc stop`".into())
+                Some("run `ctxc status --daemon`, or stop it with `ctxc stop`".into())
             }
             DaemonError::NotRunning => Some("start it with `ctxc start`".into()),
             DaemonError::BadBindAddress { .. } => {

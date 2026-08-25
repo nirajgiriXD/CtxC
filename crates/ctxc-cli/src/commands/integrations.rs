@@ -1,4 +1,4 @@
-//! `ctxc integrations`
+//! `ctxc config agents`
 //!
 //! Coding agents do not have an API for "here is a tool you can use" — they
 //! read a file. So installing an integration means writing one marked block
@@ -58,14 +58,14 @@ impl Render for IntegrationsReport {
             writeln!(out, "No agents detected here.")?;
             writeln!(
                 out,
-                "Install one anyway with `ctxc integrations install <NAME>`."
+                "Install one anyway with `ctxc config agents install <NAME>`."
             )?;
         } else if available > 0 {
             writeln!(
                 out,
                 "{available} detected agent(s) have no CtxC guidance yet."
             )?;
-            writeln!(out, "Add it with `ctxc integrations install --detected`.")?;
+            writeln!(out, "Add it with `ctxc config agents install --detected`.")?;
         }
         Ok(())
     }
@@ -110,7 +110,10 @@ impl Render for ChangeReport {
             writeln!(out)?;
             writeln!(out, "This directory is not a registered project, so there")?;
             writeln!(out, "is nothing for an agent to search yet.")?;
-            writeln!(out, "Run `ctxc project add .` or `ctxc index .` first.")?;
+            writeln!(
+                out,
+                "Run `ctxc project add .` or `ctxc project index .` first."
+            )?;
         }
         Ok(())
     }

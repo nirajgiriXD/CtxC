@@ -42,7 +42,7 @@ const REGISTRY_REFRESH: Duration = Duration::from_secs(5);
 
 /// How often buffered measurements are written.
 ///
-/// Often enough that `ctxc metrics` in another terminal is close to current,
+/// Often enough that `ctxc status --metrics` in another terminal is close to current,
 /// rarely enough that a busy daemon writes batches rather than single rows.
 const METRICS_FLUSH: Duration = Duration::from_secs(5);
 

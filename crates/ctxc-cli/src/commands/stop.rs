@@ -10,7 +10,7 @@
 //! so it is terminated, having first been checked to still be the CtxC process
 //! its record claims.
 //!
-//! `ctxc daemon stop` remains the narrow one: it stops the daemon and nothing
+//! `ctxc stop` remains the narrow one: it stops the daemon and nothing
 //! else. `--all` widens this the other way, past the data directory to every
 //! CtxC process on the machine.
 

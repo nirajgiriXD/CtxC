@@ -48,7 +48,7 @@ impl ClientError {
     pub fn hint(&self) -> Option<String> {
         match self {
             ClientError::Unreachable { .. } => {
-                Some("start it with `ctxc start`, or check `ctxc daemon status`".into())
+                Some("start it with `ctxc start`, or check `ctxc status --daemon`".into())
             }
             ClientError::Api { hint, .. } => hint.clone(),
             ClientError::Transport(_) | ClientError::Malformed => None,

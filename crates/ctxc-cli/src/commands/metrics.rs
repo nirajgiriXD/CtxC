@@ -1,4 +1,4 @@
-//! `ctxc metrics`
+//! `ctxc status --metrics`
 //!
 //! What CtxC has actually saved, and where the saving came from. The command
 //! rolls up before it reads: someone running metrics without a daemon should
@@ -18,7 +18,7 @@ use crate::app::App;
 use crate::cli::MetricsOptions;
 use crate::output::{human_percent, human_total, Printer, Render};
 
-/// Everything `ctxc metrics` reports, in one document.
+/// Everything `ctxc status --metrics` reports, in one document.
 #[derive(Debug, serde::Serialize)]
 pub struct MetricsReport {
     /// The project this covers, by name, or `None` for everything.

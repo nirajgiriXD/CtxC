@@ -1,4 +1,4 @@
-//! `ctxc optimize <input>` and `ctxc compile <input>...`
+//! `ctxc optimize <input>...`, and the capture behind `ctxc optimize -- ...`
 //!
 //! These two commands produce content, not a report, so they split their output
 //! deliberately:

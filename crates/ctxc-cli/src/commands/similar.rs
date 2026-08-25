@@ -1,4 +1,4 @@
-//! `ctxc similar`
+//! `ctxc find --similar`
 //!
 //! Find the files closest to a piece of text, by embedding similarity rather
 //! than by keyword. Useful for "what else looks like this?" — near-duplicate
@@ -25,7 +25,7 @@ use crate::app::App;
 use crate::error::CliError;
 use crate::output::{human_percent, Printer, Render};
 
-/// What `ctxc similar` found.
+/// What `ctxc find --similar` found.
 #[derive(Debug, Serialize)]
 pub struct SimilarReport {
     pub query: String,
@@ -70,7 +70,7 @@ pub fn run<W: Write>(
     let options = SemanticOptions::from_config(&app.config);
     if !options.enabled {
         return Err(CliError::new("embeddings are switched off")
-            .with_hint("set semantic.enabled = true, then run `ctxc index` to build them")
+            .with_hint("set semantic.enabled = true, then run `ctxc project index` to build them")
             .into());
     }
 
@@ -87,7 +87,7 @@ pub fn run<W: Write>(
     if embedder.count()? == 0 {
         return Err(
             CliError::new(format!("{} has no embeddings", root.display()))
-                .with_hint("run `ctxc index` to build them")
+                .with_hint("run `ctxc project index` to build them")
                 .into(),
         );
     }

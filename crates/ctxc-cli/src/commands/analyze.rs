@@ -1,4 +1,4 @@
-//! `ctxc analyze <input>`
+//! `ctxc optimize --dry-run <input>`
 
 use std::io::{self, Write};
 use std::path::Path;

@@ -106,7 +106,7 @@ mod tests {
         assert!(
             text.contains(
                 "Try:
-  run `ctxc integrations list`"
+  run `ctxc config agents list`"
             ),
             "{text}"
         );

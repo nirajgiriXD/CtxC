@@ -55,7 +55,7 @@ impl App {
     ///
     /// Called after the command has already produced its output, so a metrics
     /// failure costs a warning on stderr and nothing else. Nothing was recorded
-    /// means nothing is opened: `ctxc version` must not create a database.
+    /// means nothing is opened: `ctxc --version` must not create a database.
     pub fn flush_metrics(&self) {
         if self.metrics.pending() == 0 {
             return;

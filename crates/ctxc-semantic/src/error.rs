@@ -30,7 +30,7 @@ impl SemanticError {
                 available.join(", ")
             )),
             SemanticError::ProviderChanged { .. } => {
-                Some("run `ctxc index --force` to rebuild them".into())
+                Some("run `ctxc project index --force` to rebuild them".into())
             }
             SemanticError::Core(err) => err.hint(),
         }

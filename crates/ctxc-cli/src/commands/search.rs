@@ -1,4 +1,4 @@
-//! `ctxc search` and `ctxc retrieve`.
+//! `ctxc find`, and the reference recovery it also answers.
 //!
 //! Search answers "what should an agent read to work on this?" — full-text
 //! matches, symbol matches, and whatever the dependency graph says those files
@@ -150,7 +150,7 @@ pub fn search<W: Write>(
     if store.counts(&key)?.files == 0 {
         return Err(
             CliError::new(format!("{} has not been indexed", root.display()))
-                .with_hint("run `ctxc index` first")
+                .with_hint("run `ctxc project index` first")
                 .into(),
         );
     }
@@ -244,7 +244,7 @@ fn compile_selection<W: Write>(
 
     // The compiled document cites each file by reference, and a reference that
     // resolves to nothing is worse than no reference at all: store the
-    // originals so `ctxc retrieve` can honour them.
+    // originals so `ctxc find <REFERENCE>` can honour them.
     let stored = super::optimize::store_originals(app, &contexts, options.no_store)?;
 
     let report = CompiledContextReport {
