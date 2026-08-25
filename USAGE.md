@@ -111,7 +111,7 @@ On Windows, copy `target\release\ctxc.exe` into a directory on `PATH`.
 ### Verifying the build
 
 ```bash
-ctxc version
+ctxc --version
 ```
 
 ```text
@@ -144,10 +144,10 @@ git status | ctxc optimize --from "git status"
 
 # 3. Register a project and index it
 ctxc project add .
-ctxc index .
+ctxc project index .
 
 # 4. Search it
-ctxc search "how are tokens counted"
+ctxc find "how are tokens counted"
 ```
 
 `ctxc status` reports paths, the database, and whether a daemon is running:
@@ -427,8 +427,9 @@ These work on every command and may appear before or after the subcommand.
 ### Streams
 
 Results go to **stdout**; logs and diagnostics always go to **stderr**. For
-the commands whose product is content — `optimize`, `compile`,
-`search --compile`, and `retrieve` — stdout carries the content and the
+the commands whose product is content — `optimize` and
+`find`, whether it is compiling results or recovering a reference — stdout
+carries the content and the
 summary goes to stderr in `human` format, so piping is always safe:
 
 ```bash
@@ -439,67 +440,46 @@ ctxc optimize build.log > optimized.txt        # only the content is redirected
 
 ## Command reference
 
+CtxC advertises nine commands. Each one covers a group of related work, so
+there is one obvious place to look rather than twenty-one names to choose
+between.
+
 | Command | Purpose |
 |---------|---------|
-| [`analyze`](#ctxc-analyze) | Describe input and what optimizing it would save |
-| [`optimize`](#ctxc-optimize) | Optimize input and write the result to stdout |
-| [`compile`](#ctxc-compile) | Optimize several inputs into one AI-ready document |
-| [`capture`](#ctxc-capture) | Run a command and optimize what it prints |
-| [`retrieve`](#ctxc-retrieve) | Recover the original behind a `ctxc://context/<id>` reference |
-| [`index`](#ctxc-index) | Index a project's files, symbols, and relationships |
-| [`graph`](#ctxc-graph) | Show how a project's files depend on each other |
-| [`search`](#ctxc-search) | Find the context most relevant to a question |
-| [`similar`](#ctxc-similar) | Find the files closest to a text, by embedding similarity |
-| [`project`](#ctxc-project) | Manage the projects CtxC looks after |
-| [`start` / `stop` / `daemon`](#ctxc-start--ctxc-stop--ctxc-daemon) | Daemon lifecycle and diagnostics |
-| [`metrics`](#ctxc-metrics) | Show what CtxC has saved |
+| [`optimize`](#ctxc-optimize) | Shrink input: a file, several files, stdin, or a command's output |
+| [`find`](#ctxc-find) | Search a project, rank by meaning, or recover a stored reference |
+| [`project`](#ctxc-project) | Manage projects, and read their code with `index` and `graph` |
+| [`start`](#ctxc-start) | Start the daemon, in this terminal or in the background |
+| [`stop`](#ctxc-stop) | Stop the daemon and every other CtxC process |
+| [`status`](#ctxc-status) | The state of this installation; `--daemon` and `--metrics` for detail |
+| [`config`](#ctxc-config) | Inspect configuration, and with `agents` set up the tools that use CtxC |
 | [`dashboard`](#ctxc-dashboard) | Open the local dashboard in a browser |
-| [`integrations`](#ctxc-integrations) | Tell coding agents about CtxC |
-| [`mcp`](#ctxc-mcp) | Serve CtxC over the Model Context Protocol |
-| [`status`](#ctxc-status) | Show the state of this installation |
-| [`version`](#ctxc-version) | Print version and build information |
 | [`update`](#ctxc-update) | Fetch the latest source, build it, replace this binary |
-| [`config`](#ctxc-config) | Inspect and create configuration |
 
----
+`ctxc mcp` also exists. Agents spawn it; people rarely run it directly, so it
+is left out of `--help`.
 
-### `ctxc analyze`
+#### Names from earlier versions
 
-Describe an input and report what optimizing it *would* save. Nothing is
-written and nothing is stored.
+Every command CtxC used to have still runs. They are hidden from `--help`
+rather than removed, so existing scripts and aliases keep working.
 
-```text
-ctxc analyze [INPUT] [--from <COMMAND>]
-```
-
-| Argument / flag | Meaning |
-|-----------------|---------|
-| `INPUT` | File to analyze. Omit it, or pass `-`, to read standard input. |
-| `--from <COMMAND>` | The command that produced this input, so a tool-specific optimizer can claim it. |
-
-```bash
-ctxc analyze README.md
-cat build.log | ctxc analyze --from "cargo build"
-```
-
-```text
-README.md
-
-Type:        markdown
-Size:        6,343 bytes
-Lines:       397
-Fragments:   132  (26 duplicated)
-Tokens:      1,801  (estimated)
-
-Optimizer:   text
-Projected:   1,717 tokens  (4.7% smaller)
-
-Savings by stage:
-  deduplication   84 saved
-```
-
-`analyze` takes a file, not a directory. To work on a whole project, use
-[`ctxc index`](#ctxc-index) and [`ctxc search`](#ctxc-search).
+| Old | Now |
+|-----|-----|
+| `ctxc analyze <INPUT>` | `ctxc optimize --dry-run <INPUT>` |
+| `ctxc compile <A> <B>` | `ctxc optimize <A> <B>` |
+| `ctxc capture -- <CMD>` | `ctxc optimize -- <CMD>` |
+| `ctxc search <QUERY>` | `ctxc find <QUERY>` — `search` also stays a direct alias |
+| `ctxc similar <TEXT>` | `ctxc find <TEXT> --similar` |
+| `ctxc retrieve <REF>` | `ctxc find <REF>` |
+| `ctxc index [PATH]` | `ctxc project index [PATH]` |
+| `ctxc graph [PATH]` | `ctxc project graph [PATH]` |
+| `ctxc metrics` | `ctxc status --metrics` |
+| `ctxc integrations` | `ctxc config agents` |
+| `ctxc start` | `ctxc start` |
+| `ctxc stop` | `ctxc stop` |
+| `ctxc status --daemon` | `ctxc status --daemon` |
+| `ctxc version` | `ctxc --version` |
 
 ---
 
@@ -538,7 +518,7 @@ Reference:        ctxc://context/8e3b5df9d44d2a8e7ebb6f3fdd870ec8
 ```
 
 The original is stored by default, so the `ctxc://context/<id>` reference
-stays resolvable through [`ctxc retrieve`](#ctxc-retrieve). `--no-store`
+stays resolvable through [`ctxc find`](#ctxc-find-reference). `--no-store`
 skips that, and the reference will not resolve.
 
 Piped input carries no provenance. `--from` is how a tool-specific
@@ -546,16 +526,56 @@ optimizer gets selected for it; without it, generic text optimization
 applies.
 
 Input is capped at 16 MB per context. Larger material is a job for
-[`ctxc index`](#ctxc-index).
+[`ctxc project index`](#ctxc-project-index).
 
 ---
 
-### `ctxc compile`
+### `ctxc optimize --dry-run`
+
+Describe an input and report what optimizing it *would* save. Nothing is
+written and nothing is stored.
+
+```text
+ctxc optimize --dry-run [INPUT] [--from <COMMAND>]
+```
+
+| Argument / flag | Meaning |
+|-----------------|---------|
+| `INPUT` | File to analyze. Omit it, or pass `-`, to read standard input. |
+| `--from <COMMAND>` | The command that produced this input, so a tool-specific optimizer can claim it. |
+
+```bash
+ctxc optimize --dry-run README.md
+cat build.log | ctxc optimize --dry-run --from "cargo build"
+```
+
+```text
+README.md
+
+Type:        markdown
+Size:        6,343 bytes
+Lines:       397
+Fragments:   132  (26 duplicated)
+Tokens:      1,801  (estimated)
+
+Optimizer:   text
+Projected:   1,717 tokens  (4.7% smaller)
+
+Savings by stage:
+  deduplication   84 saved
+```
+
+`--dry-run` takes a file, not a directory. To work on a whole project, use
+[`ctxc project index`](#ctxc-project-index) and [`ctxc find`](#ctxc-find).
+
+---
+
+### `ctxc optimize <INPUT>...`
 
 Optimize several inputs into one AI-ready document.
 
 ```text
-ctxc compile <INPUT>... [--budget <TOKENS>] [--no-store]
+ctxc optimize <INPUT>... [--budget <TOKENS>] [--no-store]
 ```
 
 | Argument / flag | Default | Meaning |
@@ -565,7 +585,7 @@ ctxc compile <INPUT>... [--budget <TOKENS>] [--no-store]
 | `--no-store` | off | Do not keep the originals in the context database. |
 
 ```bash
-ctxc compile src/auth.rs src/session.rs README.md --budget 4000 > context.txt
+ctxc optimize src/auth.rs src/session.rs README.md --budget 4000 > context.txt
 ```
 
 Each section is introduced by a header carrying the source and its
@@ -591,13 +611,13 @@ A section reduced to zero tokens did not fit the budget.
 
 ---
 
-### `ctxc capture`
+### `ctxc optimize -- <COMMAND>`
 
 Run a command and optimize what it prints. The command is executed
 directly, without a shell.
 
 ```text
-ctxc capture [--budget <TOKENS>] [--no-store] -- <COMMAND>...
+ctxc optimize [--budget <TOKENS>] [--no-store] -- <COMMAND>...
 ```
 
 | Argument / flag | Default | Meaning |
@@ -607,9 +627,9 @@ ctxc capture [--budget <TOKENS>] [--no-store] -- <COMMAND>...
 | `--no-store` | off | Do not keep the original output. |
 
 ```bash
-ctxc capture -- cargo test
-ctxc capture --budget 1500 -- npm run build
-ctxc capture -- git -c color.ui=false status
+ctxc optimize -- cargo test
+ctxc optimize --budget 1500 -- npm run build
+ctxc optimize -- git -c color.ui=false status
 ```
 
 The `--` separator is required; everything after it belongs to the captured
@@ -626,141 +646,37 @@ Anything else gets a generic command-output profile.
 
 ---
 
-### `ctxc retrieve`
-
-Recover the original content behind a `ctxc://context/<id>` reference.
-
-```text
-ctxc retrieve <REFERENCE>
-```
-
-```bash
-ctxc retrieve ctxc://context/8e3b5df9d44d2a8e7ebb6f3fdd870ec8
-ctxc retrieve 8e3b5df9d44d2a8e7ebb6f3fdd870ec8      # the bare id also works
-```
-
-The original content goes to stdout; its metadata goes to stderr:
-
-```text
-Reference:    ctxc://context/1b39864e6f5de1375fe194950491ec42
-Source:       <stdin>
-Type:         plain_text
-Size:         24 bytes
-```
-
-A reference resolves as long as the original is in the database. It will
-not resolve if the command that produced it ran with `--no-store`, or if
-the database has been cleared.
-
----
-
-### `ctxc index`
-
-Index a project's code: files, symbols, and how they relate. Indexing is
-incremental — unchanged files are skipped — so re-running it is cheap.
-
-```text
-ctxc index [PATH] [--force]
-```
-
-| Argument / flag | Default | Meaning |
-|-----------------|---------|---------|
-| `PATH` | current directory | Project directory to index. |
-| `--force` | off | Re-parse every file, even ones that look unchanged. |
-
-```bash
-ctxc index
-ctxc index ~/Projects/acme-web
-ctxc index . --force
-```
-
-```text
-.
-
-Scanned:       180
-Indexed:       180
-Unchanged:     0
-Symbols:       2,719
-Relationships: 10,843
-Ignored:       4
-Duration:      825 ms
-```
-
-Symbols and relationships are extracted with Tree-sitter for **Rust,
-JavaScript, TypeScript, TSX, Python, and Go**. Files in other languages are
-still indexed for full-text search; they simply contribute no symbols.
-
-With `semantic.enabled = true`, embeddings are computed in the same pass
-and the report gains an `Embedded:` line.
-
-A directory does not need to be a registered project to be indexed.
-
----
-
-### `ctxc graph`
-
-Show how a project's files depend on each other. Requires an index.
-
-```text
-ctxc graph [PATH] [--file <RELATIVE_PATH>] [--limit <COUNT>]
-```
-
-| Argument / flag | Default | Meaning |
-|-----------------|---------|---------|
-| `PATH` | current directory | Project directory. |
-| `--file <RELATIVE_PATH>` | — | Show one file's dependencies and dependents instead of a summary. |
-| `--limit <COUNT>` | `10` | How many files to list in the summary. |
-
-```bash
-ctxc graph
-ctxc graph --limit 5
-ctxc graph --file crates/ctxc-core/src/config.rs
-```
-
-```text
-C:\Users\you\Projects\ctxc
-
-Files:  180
-Nodes:  130
-Edges:  451
-
-Most depended on:
-  crates/ctxc-core/src/lib.rs                     52 dependents
-  crates/ctxc-store/src/lib.rs                    24 dependents
-  crates/ctxc-cli/src/output.rs                   17 dependents
-```
-
-With `--file`, the report also lists unresolved imports — imports that did
-not resolve to a file inside this project, such as external crates and
-packages.
-
----
-
-### `ctxc search`
+### `ctxc find`
 
 Find the context most relevant to a question. Full-text matches, symbol
 matches, and what the dependency graph says those files lean on, ranked
 together. Requires an index.
 
 ```text
-ctxc search <QUERY> [--path <PATH>] [--limit <COUNT>]
-             [--compile] [--budget <TOKENS>] [--no-store]
+ctxc find <QUERY> [--path <PATH>] [--similar] [--limit <COUNT>]
+          [--compile] [--budget <TOKENS>] [--no-store]
 ```
+
+`find` answers three shapes of the same question, chosen by what you give it:
+a query searches the index, `--similar` ranks by embedding similarity, and a
+`ctxc://context/<id>` query recovers the original behind that reference. The
+two variants have their own sections below.
 
 | Argument / flag | Default | Meaning |
 |-----------------|---------|---------|
 | `QUERY` | required | What to look for. Quote a phrase to keep it together. |
 | `--path <PATH>` | current directory | Project directory to search. |
+| `--similar` | off | Rank by embedding similarity alone, rather than searching the index. |
 | `--limit <COUNT>` | `20` | Maximum number of results. |
 | `--compile` | off | Emit the selected context as one optimized document instead of a list. |
 | `--budget <TOKENS>` | `budget.default` | Token budget for `--compile`. |
 | `--no-store` | off | With `--compile`, do not keep the cited originals. |
 
 ```bash
-ctxc search "token budget"
-ctxc search "auth timeout" --limit 5
-ctxc search "session handling" --path ~/Projects/acme-web
-ctxc search "how are tokens counted" --compile --budget 4000 > context.txt
+ctxc find "token budget"
+ctxc find "auth timeout" --limit 5
+ctxc find "session handling" --path ~/Projects/acme-web
+ctxc find "how are tokens counted" --compile --budget 4000 > context.txt
 ```
 
 Listing results:
@@ -788,13 +704,13 @@ embeddings on never silently changes what search returns.
 
 ---
 
-### `ctxc similar`
+### `ctxc find --similar`
 
 Find the files closest to a piece of text by embedding similarity, rather
 than by keyword.
 
 ```text
-ctxc similar <TEXT> [--path <PATH>] [--limit <COUNT>]
+ctxc find <TEXT> --similar [--path <PATH>] [--limit <COUNT>]
 ```
 
 | Argument / flag | Default | Meaning |
@@ -809,8 +725,8 @@ This command requires embeddings:
 # once, in configuration or the environment
 export CTXC_SEMANTIC_ENABLED=true
 
-ctxc index .                       # builds the embeddings
-ctxc similar "token budget accounting" --limit 3
+ctxc project index .                       # builds the embeddings
+ctxc find "token budget accounting" --similar --limit 3
 ```
 
 ```text
@@ -825,6 +741,34 @@ The `hashed` embedder — the only one in this build — needs no model and no
 network, and its similarity is **lexical**. An empty result means "nothing
 that uses these words", not "nothing exists". Results below 15% similarity
 are not shown.
+
+---
+
+### `ctxc find <REFERENCE>`
+
+Recover the original content behind a `ctxc://context/<id>` reference.
+
+```text
+ctxc find <REFERENCE>
+```
+
+```bash
+ctxc find ctxc://context/8e3b5df9d44d2a8e7ebb6f3fdd870ec8
+ctxc find 8e3b5df9d44d2a8e7ebb6f3fdd870ec8      # the bare id also works
+```
+
+The original content goes to stdout; its metadata goes to stderr:
+
+```text
+Reference:    ctxc://context/1b39864e6f5de1375fe194950491ec42
+Source:       <stdin>
+Type:         plain_text
+Size:         24 bytes
+```
+
+A reference resolves as long as the original is in the database. It will
+not resolve if the command that produced it ran with `--no-store`, or if
+the database has been cleared.
 
 ---
 
@@ -892,41 +836,104 @@ Last index: never
 
 ---
 
-### `ctxc start` / `ctxc stop` / `ctxc daemon`
+### `ctxc project index`
 
-The daemon keeps registered projects indexed as their files change, serves
-the HTTP API, and serves the dashboard.
+Index a project's code: files, symbols, and how they relate. Indexing is
+incremental — unchanged files are skipped — so re-running it is cheap.
+
+```text
+ctxc project index [PATH] [--force]
+```
+
+| Argument / flag | Default | Meaning |
+|-----------------|---------|---------|
+| `PATH` | current directory | Project directory to index. |
+| `--force` | off | Re-parse every file, even ones that look unchanged. |
+
+```bash
+ctxc project index
+ctxc project index ~/Projects/acme-web
+ctxc project index . --force
+```
+
+```text
+.
+
+Scanned:       180
+Indexed:       180
+Unchanged:     0
+Symbols:       2,719
+Relationships: 10,843
+Ignored:       4
+Duration:      825 ms
+```
+
+Symbols and relationships are extracted with Tree-sitter for **Rust,
+JavaScript, TypeScript, TSX, Python, and Go**. Files in other languages are
+still indexed for full-text search; they simply contribute no symbols.
+
+With `semantic.enabled = true`, embeddings are computed in the same pass
+and the report gains an `Embedded:` line.
+
+A directory does not need to be a registered project to be indexed.
+
+---
+
+### `ctxc project graph`
+
+Show how a project's files depend on each other. Requires an index.
+
+```text
+ctxc project graph [PATH] [--file <RELATIVE_PATH>] [--limit <COUNT>]
+```
+
+| Argument / flag | Default | Meaning |
+|-----------------|---------|---------|
+| `PATH` | current directory | Project directory. |
+| `--file <RELATIVE_PATH>` | — | Show one file's dependencies and dependents instead of a summary. |
+| `--limit <COUNT>` | `10` | How many files to list in the summary. |
+
+```bash
+ctxc project graph
+ctxc project graph --limit 5
+ctxc project graph --file crates/ctxc-core/src/config.rs
+```
+
+```text
+C:\Users\you\Projects\ctxc
+
+Files:  180
+Nodes:  130
+Edges:  451
+
+Most depended on:
+  crates/ctxc-core/src/lib.rs                     52 dependents
+  crates/ctxc-store/src/lib.rs                    24 dependents
+  crates/ctxc-cli/src/output.rs                   17 dependents
+```
+
+With `--file`, the report also lists unresolved imports — imports that did
+not resolve to a file inside this project, such as external crates and
+packages.
+
+---
+
+### `ctxc start`
+
+Start the daemon. It keeps registered projects indexed as their files change,
+serves the HTTP API, and serves the dashboard.
 
 ```text
 ctxc start [--detach]
-ctxc stop [--all]
-ctxc daemon [status|start|stop]
 ```
 
-| Command | Effect |
-|---------|--------|
-| `ctxc start` | Run the daemon in this terminal (foreground). |
-| `ctxc start --detach` | Start it in the background and report its pid and port. |
-| `ctxc stop` | Stop the daemon **and every other CtxC process**, or clear a lockfile left behind. |
-| `ctxc stop --all` | Also stop CtxC processes belonging to other data directories. |
-| `ctxc daemon status` | Report what the daemon is doing. Also the default when no subcommand is given. |
-| `ctxc daemon start` | Same as `ctxc start --detach`. |
-| `ctxc daemon stop` | Stop the daemon only, leaving everything else running. |
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--detach` | off | Start it in the background and report its pid and port, instead of holding this terminal. |
 
 ```bash
-ctxc start --detach
-ctxc daemon status
-ctxc stop
-```
-
-```text
-Daemon:     running
-PID:        34976
-Port:       7717
-Uptime:     2m 14s
-Projects:   1 (1 active)
-Indexed:    180 files
-Watching:   1 project(s)
+ctxc start            # in this terminal
+ctxc start --detach   # in the background
 ```
 
 Running in the foreground is the honest default and the right choice under
@@ -941,7 +948,22 @@ recoverable — `ctxc stop` clears the leftover lockfile.
 Set `daemon.port = 0` to have the operating system pick a free port; the
 port it got is recorded in the lockfile.
 
-#### What `ctxc stop` stops
+`ctxc status --daemon` reports what a running daemon is doing.
+
+---
+
+### `ctxc stop`
+
+Stop the daemon **and every other CtxC process** for this data directory, or
+clear a lockfile a crashed daemon left behind.
+
+```text
+ctxc stop [--all]
+```
+
+| Flag | Default | Meaning |
+|------|---------|---------|
+| `--all` | off | Also stop CtxC processes belonging to other data directories. |
 
 The daemon is not the only thing CtxC runs. An agent that has CtxC configured
 spawns `ctxc mcp`, and may never clean it up. `ctxc stop` ends those too:
@@ -976,8 +998,6 @@ record at all:
 ctxc stop --all
 ```
 
-Use `ctxc daemon stop` when you want the daemon stopped and nothing else.
-
 #### The dashboard cannot do this
 
 The dashboard has a **Stop daemon & dashboard** button, and that is exactly what
@@ -1011,13 +1031,58 @@ it claims, so a process killed outright never shows up as running.
 
 ---
 
-### `ctxc metrics`
+### `ctxc status`
+
+Show the state of this installation: version, platform, paths, database,
+and the daemon.
+
+```text
+ctxc status
+```
+
+```bash
+ctxc status
+ctxc status --format json
+```
+
+See [First run](#first-run) for sample output. This command opens (and, on
+a fresh install, creates) the database.
+
+---
+
+### `ctxc status --daemon`
+
+Report the running daemon in full: its uptime, how many projects it has, how
+many files it has indexed, and what it is watching. `ctxc status` on its own
+already says whether the daemon is running; this is the detail behind that
+line.
+
+```bash
+ctxc status --daemon
+```
+
+```text
+Daemon:     running
+PID:        34976
+Port:       7717
+Uptime:     2m 14s
+Projects:   1 (1 active)
+Indexed:    180 files
+Watching:   1 project(s)
+```
+
+When no daemon is running it says so, and says whether a lockfile was left
+behind — the case `ctxc stop` clears.
+
+---
+
+### `ctxc status --metrics`
 
 What CtxC has actually saved, and where the saving came from. Everything is
 local; nothing is transmitted.
 
 ```text
-ctxc metrics [--project <PROJECT>] [--days <DAYS>] [--breakdown]
+ctxc status --metrics [--project <PROJECT>] [--days <DAYS>] [--breakdown]
              [--by <hour|day>] [--activity <COUNT>]
 ```
 
@@ -1030,10 +1095,10 @@ ctxc metrics [--project <PROJECT>] [--days <DAYS>] [--breakdown]
 | `--activity <COUNT>` | `0` | List this many recent operations. |
 
 ```bash
-ctxc metrics
-ctxc metrics --days 7 --breakdown
-ctxc metrics --by day --activity 10
-ctxc metrics --project acme-web --format json
+ctxc status --metrics
+ctxc status --metrics --days 7 --breakdown
+ctxc status --metrics --by day --activity 10
+ctxc status --metrics --project acme-web --format json
 ```
 
 ```text
@@ -1064,6 +1129,102 @@ cost_currency = "USD"
 
 The command rolls up aggregates before reading, so a CLI-only installation
 with no daemon still sees everything it has done.
+
+---
+
+### `ctxc config`
+
+Inspect and create configuration.
+
+```text
+ctxc config [show|path|init]
+```
+
+| Subcommand | Effect |
+|------------|--------|
+| `show` | Print the effective configuration after all layers are merged. The default when no subcommand is given. |
+| `path` | Show which configuration layers were consulted, and where they live. |
+| `init [--force]` | Write a configuration file containing the built-in defaults. `--force` overwrites an existing file. |
+
+```bash
+ctxc config
+ctxc config show --format json
+ctxc config path
+ctxc config init
+```
+
+`config show` prints TOML, so what you see is exactly what a file would
+contain. `config init` writes the **defaults**, not the effective
+configuration — the file is a starting point to edit, and baking in
+whatever environment variables happened to be set would surprise the next
+run.
+
+---
+
+### `ctxc config agents`
+
+Tell coding agents about CtxC by writing a marked block into the file each
+agent reads. Uninstalling takes exactly that block back out and leaves
+everything else in place.
+
+```text
+ctxc config agents list [--path <PATH>]
+ctxc config agents install [NAME] [--path <PATH>] [--detected]
+ctxc config agents uninstall [NAME] [--path <PATH>] [--detected]
+```
+
+| Flag | Meaning |
+|------|---------|
+| `NAME` | The integration to act on. Omit it to act on several. |
+| `--path <PATH>` | Project directory. Defaults to the current one. |
+| `--detected` | Only agents that look like they are in use here. |
+
+Available integrations:
+
+| Name | Agent | File written |
+|------|-------|--------------|
+| `claude-code` | Claude Code | `CLAUDE.md` |
+| `agents-md` | Codex, OpenCode, Aider, and other `AGENTS.md` readers | `AGENTS.md` |
+| `copilot` | GitHub Copilot | `.github/copilot-instructions.md` |
+| `gemini` | Gemini CLI | `GEMINI.md` |
+| `cursor` | Cursor | `.cursor/rules/ctxc.mdc` |
+| `cline` | Cline | `.clinerules/ctxc.md` |
+| `claude-code-mcp` | Claude Code (MCP server) | `.mcp.json` |
+| `cursor-mcp` | Cursor (MCP server) | `.cursor/mcp.json` |
+
+```bash
+ctxc config agents list
+ctxc config agents install --detected
+ctxc config agents install claude-code
+ctxc config agents install claude-code-mcp
+ctxc config agents uninstall cursor
+```
+
+```text
+C:\Users\you\Projects\ctxc
+
+  claude-code   not detected  CLAUDE.md
+  agents-md     not detected  AGENTS.md
+  copilot       available     .github/copilot-instructions.md
+
+1 detected agent(s) have no CtxC guidance yet.
+Add it with `ctxc config agents install --detected`.
+```
+
+Each integration reports one of: `installed`, `outdated` (an older CtxC
+block is present), `available` (the agent is detected but has no guidance),
+or `not detected`.
+
+The `*-mcp` integrations register CtxC as an MCP server, which actually
+hands the agent CtxC's tools. The instruction files only tell the agent the
+CLI exists. Both are worth having.
+
+A named integration installs whether or not it was detected — setting one
+up before its first run is entirely reasonable.
+
+The guidance CtxC writes tells the agent to search this project, which only
+works once something has indexed it. Run `ctxc project add .` or
+`ctxc project index .` first; the command reminds you if you have not.
 
 ---
 
@@ -1129,167 +1290,19 @@ Press `Ctrl`/`Cmd` + `K` anywhere for the command menu.
 | `ctxc project status` | Projects → open one |
 | `ctxc project pause` / `resume` | Projects → row menu |
 | `ctxc project remove` | Projects → row menu |
-| `ctxc index` | Projects → Re-index |
-| `ctxc search` | Context → Search |
-| `ctxc retrieve` | Context → Reference |
-| `ctxc graph` | Context → Dependencies |
-| `ctxc metrics` | Performance |
+| `ctxc project index` | Projects → Re-index |
+| `ctxc find` | Context → Search |
+| `ctxc find` | Context → Reference |
+| `ctxc project graph` | Context → Dependencies |
+| `ctxc status --metrics` | Performance |
 | `ctxc config show` / `path` / `init` | Settings |
 | `ctxc status` | System |
-| `ctxc daemon stop` | System → Stop daemon & dashboard |
+| `ctxc stop` | System → Stop daemon & dashboard |
 
 Commands with no row here produce a stream, wrap a process, or replace the
-binary — `optimize`, `compile`, `capture`, `mcp`, `integrations`, `update`.
+binary — `optimize`, `find`, `mcp`, `config agents`, `update`.
 Those belong in a terminal, and the Commands page says so rather than implying
 a button exists.
-
----
-
-### `ctxc integrations`
-
-Tell coding agents about CtxC by writing a marked block into the file each
-agent reads. Uninstalling takes exactly that block back out and leaves
-everything else in place.
-
-```text
-ctxc integrations list [--path <PATH>]
-ctxc integrations install [NAME] [--path <PATH>] [--detected]
-ctxc integrations uninstall [NAME] [--path <PATH>] [--detected]
-```
-
-| Flag | Meaning |
-|------|---------|
-| `NAME` | The integration to act on. Omit it to act on several. |
-| `--path <PATH>` | Project directory. Defaults to the current one. |
-| `--detected` | Only agents that look like they are in use here. |
-
-Available integrations:
-
-| Name | Agent | File written |
-|------|-------|--------------|
-| `claude-code` | Claude Code | `CLAUDE.md` |
-| `agents-md` | Codex, OpenCode, Aider, and other `AGENTS.md` readers | `AGENTS.md` |
-| `copilot` | GitHub Copilot | `.github/copilot-instructions.md` |
-| `gemini` | Gemini CLI | `GEMINI.md` |
-| `cursor` | Cursor | `.cursor/rules/ctxc.mdc` |
-| `cline` | Cline | `.clinerules/ctxc.md` |
-| `claude-code-mcp` | Claude Code (MCP server) | `.mcp.json` |
-| `cursor-mcp` | Cursor (MCP server) | `.cursor/mcp.json` |
-
-```bash
-ctxc integrations list
-ctxc integrations install --detected
-ctxc integrations install claude-code
-ctxc integrations install claude-code-mcp
-ctxc integrations uninstall cursor
-```
-
-```text
-C:\Users\you\Projects\ctxc
-
-  claude-code   not detected  CLAUDE.md
-  agents-md     not detected  AGENTS.md
-  copilot       available     .github/copilot-instructions.md
-
-1 detected agent(s) have no CtxC guidance yet.
-Add it with `ctxc integrations install --detected`.
-```
-
-Each integration reports one of: `installed`, `outdated` (an older CtxC
-block is present), `available` (the agent is detected but has no guidance),
-or `not detected`.
-
-The `*-mcp` integrations register CtxC as an MCP server, which actually
-hands the agent CtxC's tools. The instruction files only tell the agent the
-CLI exists. Both are worth having.
-
-A named integration installs whether or not it was detected — setting one
-up before its first run is entirely reasonable.
-
-The guidance CtxC writes tells the agent to search this project, which only
-works once something has indexed it. Run `ctxc project add .` or
-`ctxc index .` first; the command reminds you if you have not.
-
----
-
-### `ctxc mcp`
-
-Serve CtxC over the Model Context Protocol on stdin and stdout.
-
-```text
-ctxc mcp
-```
-
-Agents spawn this; people rarely run it directly. stdout is the JSON-RPC
-protocol stream, so the command prints nothing human-readable and puts
-every diagnostic on stderr. It blocks until the client hangs up.
-
-Register it with an agent using
-[`ctxc integrations install claude-code-mcp`](#ctxc-integrations) or
-`cursor-mcp`, or configure it by hand:
-
-```json
-{
-  "mcpServers": {
-    "ctxc": {
-      "command": "ctxc",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-The tools offered:
-
-| Tool | Purpose | Required arguments |
-|------|---------|--------------------|
-| `ctxc_search` | Find the code most relevant to a question; with `compile=true`, return its content inside a budget | `query` |
-| `ctxc_optimize` | Shrink noisy text and return a `ctxc://context/<id>` reference | `content` |
-| `ctxc_compile` | Combine several files into one AI-ready document within a budget | `paths` |
-| `ctxc_retrieve` | Recover the original text behind a reference | `reference` |
-| `ctxc_index` | Index a project so it can be searched | — |
-| `ctxc_memory` | Keep short project notes across sessions (`save`, `get`, `list`, `forget`) | `action` |
-
-Optional arguments mirror the CLI: `project`, `limit`, `compile`, `budget`,
-`force`, `source`, `key`, and `value`. Relative paths and an unnamed
-project resolve from the agent's working directory.
-
----
-
-### `ctxc status`
-
-Show the state of this installation: version, platform, paths, database,
-and the daemon.
-
-```text
-ctxc status
-```
-
-```bash
-ctxc status
-ctxc status --format json
-```
-
-See [First run](#first-run) for sample output. This command opens (and, on
-a fresh install, creates) the database.
-
----
-
-### `ctxc version`
-
-Print version and build information, including the database schema version
-this build migrates to.
-
-```bash
-ctxc version
-ctxc version --format json
-```
-
-```text
-ctxc 0.1.0
-platform: windows (x86_64)
-schema:   7
-```
 
 ---
 
@@ -1357,32 +1370,65 @@ started again afterwards.
 
 ---
 
-### `ctxc config`
+### `ctxc mcp`
 
-Inspect and create configuration.
+Serve CtxC over the Model Context Protocol on stdin and stdout.
 
 ```text
-ctxc config [show|path|init]
+ctxc mcp
 ```
 
-| Subcommand | Effect |
-|------------|--------|
-| `show` | Print the effective configuration after all layers are merged. The default when no subcommand is given. |
-| `path` | Show which configuration layers were consulted, and where they live. |
-| `init [--force]` | Write a configuration file containing the built-in defaults. `--force` overwrites an existing file. |
+Agents spawn this; people rarely run it directly. stdout is the JSON-RPC
+protocol stream, so the command prints nothing human-readable and puts
+every diagnostic on stderr. It blocks until the client hangs up.
+
+Register it with an agent using
+[`ctxc config agents install claude-code-mcp`](#ctxc-config-agents) or
+`cursor-mcp`, or configure it by hand:
+
+```json
+{
+  "mcpServers": {
+    "ctxc": {
+      "command": "ctxc",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+The tools offered:
+
+| Tool | Purpose | Required arguments |
+|------|---------|--------------------|
+| `ctxc_search` | Find the code most relevant to a question; with `compile=true`, return its content inside a budget | `query` |
+| `ctxc_optimize` | Shrink noisy text and return a `ctxc://context/<id>` reference | `content` |
+| `ctxc_compile` | Combine several files into one AI-ready document within a budget | `paths` |
+| `ctxc_retrieve` | Recover the original text behind a reference | `reference` |
+| `ctxc_index` | Index a project so it can be searched | — |
+| `ctxc_memory` | Keep short project notes across sessions (`save`, `get`, `list`, `forget`) | `action` |
+
+Optional arguments mirror the CLI: `project`, `limit`, `compile`, `budget`,
+`force`, `source`, `key`, and `value`. Relative paths and an unnamed
+project resolve from the agent's working directory.
+
+---
+
+### `ctxc --version`
+
+Print version and build information, including the database schema version
+this build migrates to.
 
 ```bash
-ctxc config
-ctxc config show --format json
-ctxc config path
-ctxc config init
+ctxc --version
+ctxc --version --format json
 ```
 
-`config show` prints TOML, so what you see is exactly what a file would
-contain. `config init` writes the **defaults**, not the effective
-configuration — the file is a starting point to edit, and baking in
-whatever environment variables happened to be set would surprise the next
-run.
+```text
+ctxc 0.1.0
+platform: windows (x86_64)
+schema:   7
+```
 
 ---
 
@@ -1391,20 +1437,20 @@ run.
 ### Shrink noisy command output before handing it to an agent
 
 ```bash
-ctxc capture -- cargo test
-ctxc capture -- npm run build
+ctxc optimize -- cargo test
+ctxc optimize -- npm run build
 git diff | ctxc optimize --from "git diff"
 ```
 
 ### Assemble task-scoped context for an agent
 
 ```bash
-ctxc index .
-ctxc search "why does the session expire early" --compile --budget 6000 > context.txt
+ctxc project index .
+ctxc find "why does the session expire early" --compile --budget 6000 > context.txt
 ```
 
 `context.txt` holds the highest-ranked files, optimized, inside the budget,
-each cited by a reference the agent can expand with `ctxc retrieve`.
+each cited by a reference the agent can expand with `ctxc find`.
 
 ### Keep a project current in the background
 
@@ -1422,23 +1468,23 @@ files change.
 ```bash
 cd ~/Projects/acme-web
 ctxc project add .
-ctxc index .
-ctxc integrations install --detected
-ctxc integrations install claude-code-mcp
+ctxc project index .
+ctxc config agents install --detected
+ctxc config agents install claude-code-mcp
 ```
 
 ### Script CtxC from another tool
 
 ```bash
-ctxc search "auth" --format json | jq '.files[].path'
-ctxc metrics --format json | jq '.summary.tokens_saved'
+ctxc find "auth" --format json | jq '.files[].path'
+ctxc status --metrics --format json | jq '.summary.tokens_saved'
 ctxc optimize build.log --format quiet > optimized.txt
 ```
 
 ### Run a throwaway instance
 
 ```bash
-CTXC_HOME=/tmp/ctxc-scratch ctxc index .
+CTXC_HOME=/tmp/ctxc-scratch ctxc project index .
 rm -rf /tmp/ctxc-scratch
 ```
 
@@ -1452,7 +1498,7 @@ Start the daemon and every **active** registered project is watched:
 ```bash
 ctxc project add ~/Projects/acme-web
 ctxc start --detach
-ctxc daemon status
+ctxc status --daemon
 ```
 
 Behavior is controlled by `[watch]`:
@@ -1465,7 +1511,7 @@ Behavior is controlled by `[watch]`:
 
 Some projects cannot be watched — network filesystems, containers, and
 platform watch limits. Those fall back to periodic scanning, and
-`ctxc daemon status` reports them:
+`ctxc status --daemon` reports them:
 
 ```text
 Watching:   3 project(s)  (1 scanning instead)
@@ -1505,7 +1551,7 @@ CTXC_STORAGE_PATH=/mnt/fast/ctxc.db ctxc status
 ```
 
 The database is created and migrated automatically on first use.
-`ctxc version` reports the schema version this build migrates to, and
+`ctxc --version` reports the schema version this build migrates to, and
 `ctxc status` reports the schema version and size on disk of the database
 you actually have.
 
@@ -1532,15 +1578,15 @@ Every command accepts `--format`:
 
 ```bash
 ctxc status --format json
-ctxc search "auth" --format jsonl
+ctxc find "auth" --format jsonl
 ctxc optimize build.log --format quiet > optimized.txt
 ```
 
 Human and machine output come from the same value, so they cannot drift
 apart.
 
-For the content-producing commands — `optimize`, `compile`,
-`search --compile`, and `retrieve` — the formats differ in where the
+For the content-producing commands — `optimize` and `find`, whether it is
+compiling results or recovering a reference — the formats differ in where the
 content goes:
 
 | Format | stdout | stderr |
@@ -1634,7 +1680,7 @@ curl -H "Authorization: Bearer $TOKEN" \
 Logs always go to **stderr**, so stdout stays safe to pipe.
 
 ```bash
-ctxc index .            # warnings only (the default)
+ctxc project index .            # warnings only (the default)
 ctxc -v index .         # informational messages
 ctxc --debug index .    # debug messages; --debug wins over --verbose
 ```
@@ -1643,7 +1689,7 @@ For finer control, set `CTXC_LOG` using `tracing` filter syntax. It falls
 back to `RUST_LOG` and overrides the flags:
 
 ```bash
-CTXC_LOG=ctxc_store=debug ctxc index .
+CTXC_LOG=ctxc_store=debug ctxc project index .
 CTXC_LOG=warn,ctxc_daemon=trace ctxc start
 ```
 
@@ -1662,19 +1708,19 @@ ctxc start
 ## Troubleshooting
 
 **`<path> has not been indexed`**
-Run `ctxc index` in that directory first. `search` and `graph` read the
+Run `ctxc project index` in that directory first. `find` and `project graph` read the
 index; they do not scan the filesystem.
 
 **`no input given, and standard input is a terminal`**
-`optimize` and `analyze` read stdin when no file is given. Pass a file, or
+`optimize` reads stdin when no file is given. Pass a file, or
 pipe something in: `git status | ctxc optimize`.
 
 **`embeddings are switched off`**
-`ctxc similar` needs embeddings. Set `semantic.enabled = true`, then
-re-run `ctxc index` to build them.
+`ctxc find --similar` needs embeddings. Set `semantic.enabled = true`, then
+re-run `ctxc project index` to build them.
 
 **`<path> has no embeddings`**
-Embeddings were turned on after the project was indexed. Run `ctxc index`
+Embeddings were turned on after the project was indexed. Run `ctxc project index`
 again.
 
 **`nothing matching "..." fits a budget of N tokens`**
@@ -1685,7 +1731,7 @@ The reference was produced with `--no-store`, or the database was cleared.
 Re-run the command that produced it.
 
 **`a daemon is already running (pid ..., port ...)`**
-Check it with `ctxc daemon status`, or stop it with `ctxc stop`.
+Check it with `ctxc status --daemon`, or stop it with `ctxc stop`.
 
 **`Daemon: not running (a lockfile was left behind)`**
 A daemon exited uncleanly. `ctxc stop` clears the lockfile.
@@ -1703,10 +1749,10 @@ being held open by a debugger. Run `ctxc stop` again, or end it yourself.
 Run `ctxc start` in the foreground to see the failure.
 
 **`the daemon is not answering on port <port>`**
-Start it with `ctxc start`, or check `ctxc daemon status`.
+Start it with `ctxc start`, or check `ctxc status --daemon`.
 
 **`the dashboard is disabled in configuration`**
-Set `dashboard.enabled = true`, or use `ctxc metrics` instead.
+Set `dashboard.enabled = true`, or use `ctxc status --metrics` instead.
 
 **`This build of CtxC does not include the dashboard.`**
 The binary was built without the web UI. See
@@ -1724,7 +1770,7 @@ with `ctxc config init --force`.
 
 **Input is too large**
 A single context is capped at 16 MB. Larger material is a job for
-`ctxc index`, not for one context.
+`ctxc project index`, not for one context.
 
 ---
 
@@ -1765,7 +1811,7 @@ ctxc stop
 ```
 
 Either way, the database is migrated automatically the first time the new
-binary opens it. Compare `ctxc version` (the schema this build wants) with
+binary opens it. Compare `ctxc --version` (the schema this build wants) with
 `ctxc status` (the schema you have) if you want to confirm a migration ran.
 
 ---
@@ -1780,7 +1826,7 @@ Removing them removes CtxC completely — no project files are ever touched.
 ctxc stop
 
 # 2. Take CtxC guidance back out of any project that has it
-ctxc integrations uninstall --path ~/Projects/acme-web
+ctxc config agents uninstall --path ~/Projects/acme-web
 
 # 3. Remove the binary
 cargo uninstall ctxc-cli          # if installed with cargo install
@@ -1838,5 +1884,5 @@ If you moved the database with `storage.path`, delete that file too.
 
 - `CTXC_HOME` overrides every convention above and puts config, data, and
   cache in one directory.
-- CtxC never assumes a particular shell. `ctxc capture` runs its command
+- CtxC never assumes a particular shell. `ctxc optimize` runs its command
   directly, without a shell, so shell syntax after `--` is not interpreted.

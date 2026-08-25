@@ -295,7 +295,11 @@ Use:
 
 The CLI should expose a stable command structure, and must never advertise a command that does not work: the command tree is the contract, not a wish list.
 
-The tree is organised around what a user is doing rather than around which crate does it. Content commands (`analyze`, `optimize`, `compile`, `capture`, `retrieve`) act on one piece of material. Project commands (`index`, `graph`, `search`, `similar`, `project`) act on a registered or indexed directory. Lifecycle commands (`start`, `stop`, `daemon`) manage the runtime. `ctxc start` is the user-facing alias for starting the daemon, and `ctxc stop` ends everything CtxC is running for a data directory — the daemon over its API, and every other recorded process by termination; `ctxc daemon` remains available for lower-level control and diagnostics, including stopping the daemon on its own. `ctxc_core::processes` holds the records and the platform lookups that say whether one is still there; only the CLI ends a process, so the daemon can report what a dashboard's stop button would leave running (`GET /v1/processes`) without a web page being able to terminate anything. Installation commands (`version`, `status`, `config`, `update`) describe and look after CtxC itself.
+The tree is organised around what a user is doing rather than around which crate does it, and it is deliberately small: nine advertised commands, each covering a group of related work. `optimize` shrinks material — one file, several files, stdin, or a command run after `--`, with `--dry-run` describing the saving instead of producing it. `find` retrieves context — searching the index, ranking by embedding similarity under `--similar`, or recovering the original behind a `ctxc://context/<id>` reference. `project` covers the registry along with `index` and `graph`, which read a directory's code. `start` and `stop` manage the runtime — one command each, because there is nothing to group and a `daemon` parent would only add a word to type. `status`, `config`, `dashboard` and `update` describe and look after CtxC itself, with `status --daemon` reporting a running daemon in full, `status --metrics` reporting what was saved and `config agents` writing CtxC guidance into the tools that use it.
+
+A smaller surface is worth more than a name for every operation: the twenty-one top-level commands CtxC once had asked a reader to choose before they knew what the choices meant. So the names CtxC used to have are kept as hidden commands — absent from `--help`, still parsed, dispatching to the same work — because breaking a script to tidy a help screen is not a trade worth making. `ctxc daemon` is among them: its `start` and `stop` did exactly what the top-level commands do, and its `status` is now `ctxc status --daemon`, so keeping the parent would have meant two spellings of one thing.
+
+`ctxc stop` ends everything CtxC is running for a data directory — the daemon over its API, and every other recorded process by termination. `ctxc_core::processes` holds the records and the platform lookups that say whether one is still there; only the CLI ends a process, so the daemon can report what a dashboard's stop button would leave running (`GET /v1/processes`) without a web page being able to terminate anything.
 
 The command surface as it exists today — every command, argument, and flag — is documented in [USAGE.md](USAGE.md#command-reference).
 
@@ -893,7 +897,7 @@ Reference: ctxc://context/abc123
 Retrieval:
 
 ```bash
-ctxc retrieve ctxc://context/abc123
+ctxc find ctxc://context/abc123
 ```
 
 This enables safe aggressive optimization.
@@ -1909,7 +1913,7 @@ Reason:
 database is locked
 
 Try:
-ctxc daemon status
+ctxc status --daemon
 ```
 
 ---
@@ -2206,7 +2210,7 @@ Implement:
 Commands:
 
 ```bash
-ctxc version
+ctxc --version
 ctxc status
 ctxc config
 ```
@@ -2225,9 +2229,9 @@ Implement:
 Commands:
 
 ```bash
-ctxc analyze <input>
+ctxc optimize --dry-run <input>
 ctxc optimize <input>
-ctxc compile <input>
+ctxc optimize <input>
 ```
 
 ### Phase 3 — Tool Output
@@ -2261,9 +2265,9 @@ Implement:
 Commands:
 
 ```bash
-ctxc index .
-ctxc graph .
-ctxc search "authentication"
+ctxc project index .
+ctxc project graph .
+ctxc find "authentication"
 ```
 
 ### Phase 5 — Retrieval
@@ -2279,8 +2283,8 @@ Implement:
 Commands:
 
 ```bash
-ctxc search "authentication timeout"
-ctxc retrieve ctxc://context/abc123
+ctxc find "authentication timeout"
+ctxc find ctxc://context/abc123
 ```
 
 ### Phase 6 — Daemon and Project Registry
@@ -2291,7 +2295,7 @@ Implement:
 ctxc start
 ctxc stop
 ctxc status
-ctxc daemon status
+ctxc status --daemon
 
 ctxc project add <path>
 ctxc project list
@@ -2343,8 +2347,8 @@ Implement:
 Commands:
 
 ```bash
-ctxc metrics
-ctxc metrics --project my-project
+ctxc status --metrics
+ctxc status --metrics --project my-project
 ```
 
 ### Phase 9 — Dashboard
@@ -2475,7 +2479,7 @@ ctxc optimize < input.txt
 and:
 
 ```bash
-ctxc capture -- cargo test
+ctxc optimize -- cargo test
 ```
 
 produce:

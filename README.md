@@ -338,11 +338,11 @@ Then shrink noisy output, index a project, and pull out only what a task needs:
 
 ```bash
 # Optimize what a command printed
-ctxc capture -- cargo test
+ctxc optimize -- cargo test
 
 # Index a project, then assemble task-scoped context
-ctxc index .
-ctxc search "why does the session expire early" --compile --budget 6000
+ctxc project index .
+ctxc find "why does the session expire early" --compile --budget 6000
 ```
 
 Full instructions — prerequisites, installation, configuration, every command, workflows, troubleshooting — are in **[USAGE.md](USAGE.md)**.
