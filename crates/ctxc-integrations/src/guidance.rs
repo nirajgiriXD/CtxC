@@ -13,7 +13,7 @@
 
 /// Bumped when the text changes, so an installed block can be recognised as
 /// out of date without diffing prose.
-pub const VERSION: u32 = 1;
+pub const VERSION: u32 = 2;
 
 /// The guidance CtxC writes into an agent's instruction file.
 ///
@@ -28,13 +28,13 @@ CtxC is a local context compiler available in `{project}`. Prefer these over
 opening files at random or pasting whole command output.
 
 If a command below reports that the project has not been indexed, run
-`ctxc index .` once and try again.
+`ctxc project index .` once and try again.
 
 **Find the code relevant to a task.** This searches text, symbols, and the
 dependency graph together, then prints the best of it inside a token budget:
 
 ```
-ctxc search \"authentication timeout\" --compile
+ctxc find \"authentication timeout\" --compile
 ```
 
 Without `--compile` it lists the files and why each one matched, which is
@@ -45,14 +45,14 @@ mostly repetition:
 
 ```
 git diff | ctxc optimize
-ctxc capture -- npm test
+ctxc optimize -- npm test
 ```
 
 **Get the original back.** Optimization removes content on purpose, and every
 optimized output ends with a reference to what it came from:
 
 ```
-ctxc retrieve ctxc://context/<id>
+ctxc find ctxc://context/<id>
 ```
 
 Use it whenever a detail looks like it was dropped, rather than guessing at what
@@ -61,7 +61,7 @@ was there.
 **What to trust.** Token counts CtxC reports are estimates from a heuristic, not
 the target model's tokenizer — treat them as approximate. Search results are
 ranked, not authoritative: if the answer is not among them, the index may be
-stale, and `ctxc index .` refreshes it.
+stale, and `ctxc project index .` refreshes it.
 
 CtxC is local. It reads this project and writes to a database on this machine;
 it sends nothing anywhere.\
@@ -94,13 +94,7 @@ mod tests {
     #[test]
     fn every_command_it_suggests_is_one_ctxc_has() {
         let text = body("demo");
-        for command in [
-            "ctxc search",
-            "ctxc optimize",
-            "ctxc capture",
-            "ctxc retrieve",
-            "ctxc index",
-        ] {
+        for command in ["ctxc find", "ctxc optimize", "ctxc project index"] {
             assert!(text.contains(command), "{command} is missing: {text}");
         }
     }

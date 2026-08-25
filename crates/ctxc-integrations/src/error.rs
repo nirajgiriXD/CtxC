@@ -43,7 +43,7 @@ impl IntegrationError {
     pub fn hint(&self) -> Option<String> {
         match self {
             IntegrationError::Unknown { .. } => {
-                Some("run `ctxc integrations list` to see the names".into())
+                Some("run `ctxc config agents list` to see the names".into())
             }
             IntegrationError::Io { path, source, .. }
                 if source.kind() == std::io::ErrorKind::PermissionDenied =>

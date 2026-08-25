@@ -6,13 +6,13 @@
 //! into it, and can take that block out again.
 //!
 //! ```text
-//! ctxc integrations install claude-code
+//! ctxc config agents install claude-code
 //!        |
 //!        v
 //!   CLAUDE.md  <- one managed block, everything else untouched
 //!        |
 //!        v
-//!   the agent reads it, and knows to run `ctxc search`
+//!   the agent reads it, and knows to run `ctxc find`
 //! ```
 //!
 //! Two rules shape this crate. Integrations must never be coupled to the
@@ -610,7 +610,7 @@ mod tests {
             panic!("an unknown agent must not resolve to some other one");
         };
         assert!(matches!(error, IntegrationError::Unknown { .. }));
-        assert!(error.hint().unwrap().contains("integrations list"));
+        assert!(error.hint().unwrap().contains("config agents list"));
     }
 
     #[test]
@@ -625,7 +625,7 @@ mod tests {
         assert!(status.installed);
         assert!(!status.outdated);
         assert_eq!(status.summary(), "installed");
-        assert!(project.read("CLAUDE.md").contains("ctxc search"));
+        assert!(project.read("CLAUDE.md").contains("ctxc find"));
     }
 
     #[test]
@@ -651,7 +651,7 @@ mod tests {
 
         let after_install = project.read("CLAUDE.md");
         assert!(after_install.contains("Always run the tests."));
-        assert!(after_install.contains("ctxc search"));
+        assert!(after_install.contains("ctxc find"));
 
         assert_eq!(integration.uninstall().unwrap(), Removal::Removed);
         assert_eq!(
@@ -679,7 +679,7 @@ mod tests {
         let contents = project.read(".cursor/rules/ctxc.mdc");
         assert!(contents.starts_with("---\n"), "{contents}");
         assert!(contents.contains("alwaysApply: true"), "{contents}");
-        assert!(contents.contains("ctxc search"), "{contents}");
+        assert!(contents.contains("ctxc find"), "{contents}");
 
         integration.uninstall().unwrap();
         assert!(
@@ -901,12 +901,12 @@ mod tests {
         project.integration("claude-code").install().unwrap();
         project.integration("claude-code-mcp").install().unwrap();
 
-        assert!(project.read("CLAUDE.md").contains("ctxc search"));
+        assert!(project.read("CLAUDE.md").contains("ctxc find"));
         assert!(project.read(".mcp.json").contains("\"ctxc\""));
 
         // And removing one leaves the other in place.
         project.integration("claude-code-mcp").uninstall().unwrap();
-        assert!(project.read("CLAUDE.md").contains("ctxc search"));
+        assert!(project.read("CLAUDE.md").contains("ctxc find"));
     }
 
     #[test]
