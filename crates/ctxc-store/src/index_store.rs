@@ -5,6 +5,8 @@
 //! makes re-indexing one changed file safe — nothing else in the index is
 //! touched, and a replayed index of the same file produces the same rows.
 
+use std::collections::HashMap;
+
 use rusqlite::{Connection, OptionalExtension};
 
 use ctxc_core::Timestamp;
@@ -25,6 +27,17 @@ pub struct SymbolHit {
     pub name: String,
     pub kind: SymbolKind,
     pub start_line: u32,
+}
+
+/// What the index remembers about a file, without the rows derived from it.
+///
+/// An index pass asks "has this changed?" of every file it walks. That answer
+/// needs the fingerprint and the time it was recorded, and nothing else, so
+/// this is what [`IndexStore::fingerprints`] returns for a whole root at once.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredFingerprint {
+    pub fingerprint: FileFingerprint,
+    pub indexed_at: Timestamp,
 }
 
 /// How much has been indexed under a root.
@@ -56,6 +69,13 @@ pub trait IndexStore {
 
     /// Every path indexed under a root.
     fn file_paths(&self, root: &str) -> Result<Vec<String>>;
+
+    /// Every stored fingerprint under a root, keyed by path.
+    ///
+    /// One query for the whole root, rather than one [`IndexStore::file`] call
+    /// per walked file. A re-index where nothing changed then costs the walk
+    /// and a hash lookup per file, instead of a round trip to SQLite per file.
+    fn fingerprints(&self, root: &str) -> Result<HashMap<String, StoredFingerprint>>;
 
     /// Insert or update a file record, returning its id.
     fn upsert_file(
@@ -166,6 +186,27 @@ impl IndexStore for SqliteIndexStore<'_> {
             .query_map([root], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;
         Ok(paths)
+    }
+
+    fn fingerprints(&self, root: &str) -> Result<HashMap<String, StoredFingerprint>> {
+        let mut statement = self.conn.prepare_cached(
+            "SELECT path, size, mtime_ms, content_hash, indexed_at FROM files WHERE root = ?1",
+        )?;
+        let rows = statement.query_map([root], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                StoredFingerprint {
+                    fingerprint: FileFingerprint {
+                        size: row.get::<_, i64>(1)? as u64,
+                        mtime_ms: row.get(2)?,
+                        content_hash: row.get(3)?,
+                    },
+                    indexed_at: Timestamp::from_millis(row.get(4)?),
+                },
+            ))
+        })?;
+        rows.collect::<rusqlite::Result<HashMap<String, StoredFingerprint>>>()
+            .map_err(Into::into)
     }
 
     fn upsert_file(

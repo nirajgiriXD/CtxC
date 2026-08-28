@@ -13,7 +13,7 @@
 //! Deletions are handled by comparing what the walk saw against what the index
 //! holds, so a file removed while CtxC was not running still disappears.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
@@ -24,7 +24,7 @@ use ctxc_core::{id, Timestamp};
 use ctxc_graph::model::{FileFingerprint, FileIntelligence};
 use ctxc_graph::DependencyGraph;
 use ctxc_parser::{resolve_import, Language, ParserRegistry};
-use ctxc_store::{IndexCounts, IndexStore};
+use ctxc_store::{IndexCounts, IndexStore, StoredFingerprint};
 use ctxc_watcher::{Change, ChangeKind};
 
 use crate::error::{EngineError, Result};
@@ -172,6 +172,11 @@ impl<'a> Indexer<'a> {
             duration_ms: 0,
         };
 
+        // One query for the whole root. The alternative — asking SQLite about
+        // each walked file in turn — is the cost a warm re-index is supposed
+        // not to have.
+        let stored = self.store.fingerprints(&root_key)?;
+
         let mut seen: HashSet<&str> = HashSet::with_capacity(found.entries.len());
 
         for entry in &found.entries {
@@ -183,18 +188,21 @@ impl<'a> Indexer<'a> {
                 entry.size,
                 entry.mtime_ms,
                 &known,
+                Some(&stored),
                 options.force,
                 &mut report,
             )?;
         }
 
-        for path in self.store.file_paths(&root_key)? {
+        // The same map answers "what did the index hold that the walk did not
+        // see?", so the deletion sweep needs no second listing either.
+        for path in stored.keys() {
             if !seen.contains(path.as_str()) {
-                self.store.delete_file(&root_key, &path)?;
+                self.store.delete_file(&root_key, path)?;
                 // A vector for a file that is gone would keep turning up in
                 // similarity results for content nobody can open.
                 if let Some(embedder) = self.embedder {
-                    embedder.forget(&path)?;
+                    embedder.forget(path)?;
                 }
                 report.removed += 1;
             }
@@ -213,6 +221,10 @@ impl<'a> Indexer<'a> {
     /// Three tiers, cheapest first: unchanged metadata means skip without
     /// reading; unchanged content means refresh the metadata without parsing;
     /// anything else is parsed and replaced.
+    ///
+    /// `fingerprints` is the whole root's stored state when a full pass
+    /// preloaded it; a targeted update passes `None` and asks for the one row
+    /// it needs.
     #[allow(clippy::too_many_arguments)]
     fn index_one(
         &mut self,
@@ -222,10 +234,20 @@ impl<'a> Indexer<'a> {
         size: u64,
         mtime_ms: i64,
         known: &HashSet<&str>,
+        fingerprints: Option<&HashMap<String, StoredFingerprint>>,
         force: bool,
         report: &mut IndexReport,
     ) -> Result<()> {
-        let stored = self.store.file(root_key, relative)?;
+        let stored = match fingerprints {
+            Some(fingerprints) => fingerprints.get(relative).cloned(),
+            None => self
+                .store
+                .file(root_key, relative)?
+                .map(|file| StoredFingerprint {
+                    fingerprint: file.fingerprint,
+                    indexed_at: file.indexed_at,
+                }),
+        };
 
         // Cheap check first: size and mtime unchanged means untouched.
         if !force {
@@ -395,6 +417,7 @@ impl<'a> Indexer<'a> {
             metadata.len(),
             mtime_ms(&metadata),
             known,
+            None,
             false,
             &mut pass,
         )?;
