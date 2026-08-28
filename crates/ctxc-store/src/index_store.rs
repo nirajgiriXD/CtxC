@@ -136,25 +136,24 @@ impl IndexStore for SqliteIndexStore<'_> {
     fn file(&self, root: &str, path: &str) -> Result<Option<IndexedFile>> {
         let file = self
             .conn
-            .query_row(
+            .prepare_cached(
                 "SELECT id, language, size, mtime_ms, content_hash, indexed_at
                  FROM files WHERE root = ?1 AND path = ?2",
-                [root, path],
-                |row| {
-                    Ok(IndexedFile {
-                        id: FileId(row.get(0)?),
-                        root: root.into(),
-                        path: path.to_owned(),
-                        language: row.get(1)?,
-                        fingerprint: FileFingerprint {
-                            size: row.get::<_, i64>(2)? as u64,
-                            mtime_ms: row.get(3)?,
-                            content_hash: row.get(4)?,
-                        },
-                        indexed_at: Timestamp::from_millis(row.get(5)?),
-                    })
-                },
-            )
+            )?
+            .query_row([root, path], |row| {
+                Ok(IndexedFile {
+                    id: FileId(row.get(0)?),
+                    root: root.into(),
+                    path: path.to_owned(),
+                    language: row.get(1)?,
+                    fingerprint: FileFingerprint {
+                        size: row.get::<_, i64>(2)? as u64,
+                        mtime_ms: row.get(3)?,
+                        content_hash: row.get(4)?,
+                    },
+                    indexed_at: Timestamp::from_millis(row.get(5)?),
+                })
+            })
             .optional()?;
         Ok(file)
     }
@@ -162,7 +161,7 @@ impl IndexStore for SqliteIndexStore<'_> {
     fn file_paths(&self, root: &str) -> Result<Vec<String>> {
         let mut statement = self
             .conn
-            .prepare("SELECT path FROM files WHERE root = ?1 ORDER BY path")?;
+            .prepare_cached("SELECT path FROM files WHERE root = ?1 ORDER BY path")?;
         let paths = statement
             .query_map([root], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;
@@ -179,8 +178,10 @@ impl IndexStore for SqliteIndexStore<'_> {
     ) -> Result<FileId> {
         // RETURNING gives back the id whether the row was inserted or updated,
         // which last_insert_rowid does not after an upsert.
-        let id: i64 = self.conn.query_row(
-            "INSERT INTO files (root, path, language, size, mtime_ms, content_hash, indexed_at)
+        let id: i64 = self
+            .conn
+            .prepare_cached(
+                "INSERT INTO files (root, path, language, size, mtime_ms, content_hash, indexed_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(root, path) DO UPDATE SET
                  language     = excluded.language,
@@ -189,28 +190,32 @@ impl IndexStore for SqliteIndexStore<'_> {
                  content_hash = excluded.content_hash,
                  indexed_at   = excluded.indexed_at
              RETURNING id",
-            rusqlite::params![
-                root,
-                path,
-                language,
-                fingerprint.size as i64,
-                fingerprint.mtime_ms,
-                fingerprint.content_hash,
-                indexed_at.as_millis(),
-            ],
-            |row| row.get(0),
-        )?;
+            )?
+            .query_row(
+                rusqlite::params![
+                    root,
+                    path,
+                    language,
+                    fingerprint.size as i64,
+                    fingerprint.mtime_ms,
+                    fingerprint.content_hash,
+                    indexed_at.as_millis(),
+                ],
+                |row| row.get(0),
+            )?;
         Ok(FileId(id))
     }
 
     fn replace_intelligence(&self, file: FileId, intelligence: &FileIntelligence) -> Result<()> {
         self.conn
-            .execute("DELETE FROM symbols WHERE file_id = ?1", [file.0])?;
+            .prepare_cached("DELETE FROM symbols WHERE file_id = ?1")?
+            .execute([file.0])?;
         self.conn
-            .execute("DELETE FROM relationships WHERE file_id = ?1", [file.0])?;
+            .prepare_cached("DELETE FROM relationships WHERE file_id = ?1")?
+            .execute([file.0])?;
 
         {
-            let mut insert = self.conn.prepare(
+            let mut insert = self.conn.prepare_cached(
                 "INSERT INTO symbols (file_id, name, kind, start_line, end_line)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
             )?;
@@ -225,7 +230,7 @@ impl IndexStore for SqliteIndexStore<'_> {
             }
         }
 
-        let mut insert = self.conn.prepare(
+        let mut insert = self.conn.prepare_cached(
             "INSERT INTO relationships (file_id, kind, from_symbol, target, target_path, line)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
         )?;
@@ -246,52 +251,55 @@ impl IndexStore for SqliteIndexStore<'_> {
         // The search index keys on the file's rowid, so only its stored path
         // needs correcting; symbols and relationships hang off the same id and
         // do not move.
-        let moved = self.conn.execute(
-            "UPDATE files SET path = ?3 WHERE root = ?1 AND path = ?2",
-            [root, from, to],
-        )?;
+        let moved = self
+            .conn
+            .prepare_cached("UPDATE files SET path = ?3 WHERE root = ?1 AND path = ?2")?
+            .execute([root, from, to])?;
         if moved > 0 {
-            self.conn.execute(
-                "UPDATE file_search SET path = ?1
-                 WHERE rowid IN (SELECT id FROM files WHERE root = ?2 AND path = ?1)",
-                [to, root],
-            )?;
+            self.conn
+                .prepare_cached(
+                    "UPDATE file_search SET path = ?1
+                     WHERE rowid IN (SELECT id FROM files WHERE root = ?2 AND path = ?1)",
+                )?
+                .execute([to, root])?;
         }
         Ok(moved > 0)
     }
 
     fn delete_under(&self, root: &str, prefix: &str) -> Result<u64> {
         let pattern = format!("{}/%", prefix.trim_end_matches('/'));
-        self.conn.execute(
-            "DELETE FROM file_search WHERE rowid IN
-                 (SELECT id FROM files WHERE root = ?1 AND path LIKE ?2)",
-            [root, &pattern],
-        )?;
-        let removed = self.conn.execute(
-            "DELETE FROM files WHERE root = ?1 AND path LIKE ?2",
-            [root, &pattern],
-        )?;
+        self.conn
+            .prepare_cached(
+                "DELETE FROM file_search WHERE rowid IN
+                     (SELECT id FROM files WHERE root = ?1 AND path LIKE ?2)",
+            )?
+            .execute([root, &pattern])?;
+        let removed = self
+            .conn
+            .prepare_cached("DELETE FROM files WHERE root = ?1 AND path LIKE ?2")?
+            .execute([root, &pattern])?;
         Ok(removed as u64)
     }
 
     fn delete_file(&self, root: &str, path: &str) -> Result<bool> {
         // The search index is a virtual table, so foreign key cascades do not
         // reach it; its row has to go first, while the file id is still there.
-        self.conn.execute(
-            "DELETE FROM file_search WHERE rowid IN
-                 (SELECT id FROM files WHERE root = ?1 AND path = ?2)",
-            [root, path],
-        )?;
-        let removed = self.conn.execute(
-            "DELETE FROM files WHERE root = ?1 AND path = ?2",
-            [root, path],
-        )?;
+        self.conn
+            .prepare_cached(
+                "DELETE FROM file_search WHERE rowid IN
+                     (SELECT id FROM files WHERE root = ?1 AND path = ?2)",
+            )?
+            .execute([root, path])?;
+        let removed = self
+            .conn
+            .prepare_cached("DELETE FROM files WHERE root = ?1 AND path = ?2")?
+            .execute([root, path])?;
         Ok(removed > 0)
     }
 
     fn search_symbols(&self, root: &str, query: &str, limit: u32) -> Result<Vec<SymbolHit>> {
         let pattern = format!("%{}%", escape_like(query));
-        let mut statement = self.conn.prepare(
+        let mut statement = self.conn.prepare_cached(
             "SELECT files.path, files.language, symbols.name, symbols.kind, symbols.start_line
              FROM symbols
              JOIN files ON files.id = symbols.file_id
@@ -335,31 +343,30 @@ impl IndexStore for SqliteIndexStore<'_> {
     fn index_content(&self, file: FileId, path: &str, content: &str) -> Result<()> {
         // FTS5 has no upsert, so a re-index replaces the row outright.
         self.conn
-            .execute("DELETE FROM file_search WHERE rowid = ?1", [file.0])?;
-        self.conn.execute(
-            "INSERT INTO file_search (rowid, path, content) VALUES (?1, ?2, ?3)",
-            rusqlite::params![file.0, path, content],
-        )?;
+            .prepare_cached("DELETE FROM file_search WHERE rowid = ?1")?
+            .execute([file.0])?;
+        self.conn
+            .prepare_cached("INSERT INTO file_search (rowid, path, content) VALUES (?1, ?2, ?3)")?
+            .execute(rusqlite::params![file.0, path, content])?;
         Ok(())
     }
 
     fn file_content(&self, root: &str, path: &str) -> Result<Option<String>> {
         let content = self
             .conn
-            .query_row(
+            .prepare_cached(
                 "SELECT file_search.content
                  FROM file_search
                  JOIN files ON files.id = file_search.rowid
                  WHERE files.root = ?1 AND files.path = ?2",
-                [root, path],
-                |row| row.get::<_, String>(0),
-            )
+            )?
+            .query_row([root, path], |row| row.get::<_, String>(0))
             .optional()?;
         Ok(content)
     }
 
     fn search_text(&self, root: &str, query: &str, limit: u32) -> Result<Vec<TextHit>> {
-        let mut statement = self.conn.prepare(
+        let mut statement = self.conn.prepare_cached(
             "SELECT files.id, files.path, files.language, files.mtime_ms,
                     bm25(file_search), file_search.content
              FROM file_search
@@ -386,7 +393,7 @@ impl IndexStore for SqliteIndexStore<'_> {
     }
 
     fn relationships(&self, root: &str, path: &str) -> Result<Vec<Relationship>> {
-        let mut statement = self.conn.prepare(
+        let mut statement = self.conn.prepare_cached(
             "SELECT relationships.kind, relationships.from_symbol, relationships.target,
                     relationships.target_path, relationships.line
              FROM relationships
@@ -410,7 +417,7 @@ impl IndexStore for SqliteIndexStore<'_> {
     }
 
     fn edges(&self, root: &str) -> Result<Vec<Edge>> {
-        let mut statement = self.conn.prepare(
+        let mut statement = self.conn.prepare_cached(
             "SELECT files.path, relationships.target_path, relationships.kind
              FROM relationships
              JOIN files ON files.id = relationships.file_id
@@ -431,51 +438,50 @@ impl IndexStore for SqliteIndexStore<'_> {
     }
 
     fn counts(&self, root: &str) -> Result<IndexCounts> {
-        let counts = self.conn.query_row(
-            "SELECT
-                 (SELECT COUNT(*) FROM files WHERE root = ?1),
-                 (SELECT COUNT(*) FROM symbols
-                      JOIN files ON files.id = symbols.file_id WHERE files.root = ?1),
-                 (SELECT COUNT(*) FROM relationships
-                      JOIN files ON files.id = relationships.file_id WHERE files.root = ?1)",
-            [root],
-            |row| {
+        let counts = self
+            .conn
+            .prepare_cached(
+                "SELECT
+                     (SELECT COUNT(*) FROM files WHERE root = ?1),
+                     (SELECT COUNT(*) FROM symbols
+                          JOIN files ON files.id = symbols.file_id WHERE files.root = ?1),
+                     (SELECT COUNT(*) FROM relationships
+                          JOIN files ON files.id = relationships.file_id WHERE files.root = ?1)",
+            )?
+            .query_row([root], |row| {
                 Ok(IndexCounts {
                     files: row.get::<_, i64>(0)? as u64,
                     symbols: row.get::<_, i64>(1)? as u64,
                     relationships: row.get::<_, i64>(2)? as u64,
                 })
-            },
-        )?;
+            })?;
         Ok(counts)
     }
 
     fn record_index_run(&self, root: &str, at: Timestamp, counts: IndexCounts) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO index_state (root, last_indexed_at, file_count, symbol_count)
+        self.conn
+            .prepare_cached(
+                "INSERT INTO index_state (root, last_indexed_at, file_count, symbol_count)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(root) DO UPDATE SET
                  last_indexed_at = excluded.last_indexed_at,
                  file_count      = excluded.file_count,
                  symbol_count    = excluded.symbol_count",
-            rusqlite::params![
+            )?
+            .execute(rusqlite::params![
                 root,
                 at.as_millis(),
                 counts.files as i64,
                 counts.symbols as i64
-            ],
-        )?;
+            ])?;
         Ok(())
     }
 
     fn last_indexed_at(&self, root: &str) -> Result<Option<Timestamp>> {
         let at = self
             .conn
-            .query_row(
-                "SELECT last_indexed_at FROM index_state WHERE root = ?1",
-                [root],
-                |row| row.get::<_, i64>(0),
-            )
+            .prepare_cached("SELECT last_indexed_at FROM index_state WHERE root = ?1")?
+            .query_row([root], |row| row.get::<_, i64>(0))
             .optional()?;
         Ok(at.map(Timestamp::from_millis))
     }
@@ -483,7 +489,7 @@ impl IndexStore for SqliteIndexStore<'_> {
     fn roots(&self) -> Result<Vec<String>> {
         let mut statement = self
             .conn
-            .prepare("SELECT root FROM index_state ORDER BY root")?;
+            .prepare_cached("SELECT root FROM index_state ORDER BY root")?;
         let roots = statement
             .query_map([], |row| row.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<String>>>()?;

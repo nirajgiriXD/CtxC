@@ -93,9 +93,10 @@ impl EmbeddingStore for SqliteEmbeddingStore<'_> {
         embedding: &Embedding,
         content_hash: &str,
     ) -> Result<()> {
-        self.conn.execute(
-            "INSERT INTO embeddings
-                 (root, path, provider, dimensions, vector, content_hash, updated_at)
+        self.conn
+            .prepare_cached(
+                "INSERT INTO embeddings
+                     (root, path, provider, dimensions, vector, content_hash, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
              ON CONFLICT(root, path) DO UPDATE SET
                  provider     = excluded.provider,
@@ -103,7 +104,8 @@ impl EmbeddingStore for SqliteEmbeddingStore<'_> {
                  vector       = excluded.vector,
                  content_hash = excluded.content_hash,
                  updated_at   = excluded.updated_at",
-            rusqlite::params![
+            )?
+            .execute(rusqlite::params![
                 root,
                 path,
                 provider.name,
@@ -111,8 +113,7 @@ impl EmbeddingStore for SqliteEmbeddingStore<'_> {
                 embedding.to_bytes(),
                 content_hash,
                 Timestamp::now().as_millis(),
-            ],
-        )?;
+            ])?;
         Ok(())
     }
 
@@ -124,9 +125,11 @@ impl EmbeddingStore for SqliteEmbeddingStore<'_> {
     ) -> Result<Option<StoredEmbedding>> {
         let row = self
             .conn
-            .query_row(
+            .prepare_cached(
                 "SELECT path, vector, content_hash FROM embeddings
                  WHERE root = ?1 AND path = ?2 AND provider = ?3 AND dimensions = ?4",
+            )?
+            .query_row(
                 rusqlite::params![root, path, provider.name, provider.dimensions as i64],
                 read,
             )
@@ -136,7 +139,7 @@ impl EmbeddingStore for SqliteEmbeddingStore<'_> {
     }
 
     fn embeddings(&self, root: &str, provider: Provider<'_>) -> Result<Vec<StoredEmbedding>> {
-        let mut statement = self.conn.prepare(
+        let mut statement = self.conn.prepare_cached(
             "SELECT path, vector, content_hash FROM embeddings
              WHERE root = ?1 AND provider = ?2 AND dimensions = ?3
              ORDER BY path",
@@ -190,10 +193,9 @@ impl EmbeddingStore for SqliteEmbeddingStore<'_> {
     }
 
     fn delete_embedding(&self, root: &str, path: &str) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM embeddings WHERE root = ?1 AND path = ?2",
-            [root, path],
-        )?;
+        self.conn
+            .prepare_cached("DELETE FROM embeddings WHERE root = ?1 AND path = ?2")?
+            .execute([root, path])?;
         Ok(())
     }
 

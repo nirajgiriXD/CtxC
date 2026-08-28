@@ -14,6 +14,14 @@ use crate::migrations;
 /// invocation can legitimately overlap; waiting briefly is better than failing.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// How many prepared statements a connection keeps compiled.
+///
+/// The stores use `prepare_cached` so that indexing a file does not re-parse
+/// and re-plan the same SQL once per file. The default of 16 is smaller than
+/// the number of distinct statements the index path alone touches, so it would
+/// evict the statements it is meant to keep.
+const STATEMENT_CACHE_CAPACITY: usize = 64;
+
 /// An open CtxC database, migrated to the current schema version.
 pub struct Database {
     conn: Connection,
@@ -121,6 +129,8 @@ impl Database {
     /// unclean shutdown.
     fn configure(&self) -> Result<()> {
         self.conn.busy_timeout(BUSY_TIMEOUT)?;
+        self.conn
+            .set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         self.conn
             .execute_batch("PRAGMA foreign_keys = ON; PRAGMA synchronous = NORMAL;")?;
 
