@@ -52,6 +52,7 @@ anyhow = "1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws"] }
 blake3 = "1"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 rayon = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }

@@ -3522,3 +3522,22 @@ fn status_with_nothing_indexed_points_at_init() {
     let advice = stderr(&output);
     assert!(advice.contains("ctxc init"), "{advice}");
 }
+
+#[test]
+fn completions_are_generated_for_every_supported_shell() {
+    let sandbox = Sandbox::new("completions");
+
+    for shell in ["bash", "zsh", "fish", "powershell", "elvish"] {
+        let output = sandbox.run(&["completions", shell]);
+        assert_success(&output);
+
+        let script = stdout(&output);
+        assert!(script.len() > 200, "{shell} script looks empty: {script}");
+        for command in ["init", "optimize", "find", "project"] {
+            assert!(
+                script.contains(command),
+                "{shell} completions never mention `{command}`"
+            );
+        }
+    }
+}

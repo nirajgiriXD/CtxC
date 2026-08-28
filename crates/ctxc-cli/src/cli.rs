@@ -179,6 +179,17 @@ pub enum Command {
         options: UpdateOptions,
     },
 
+    /// Print a shell completion script.
+    ///
+    /// Read once by a shell at startup, so it is installed rather than run;
+    /// `ctxc init` prints the line that installs it for the shell in use.
+    #[command(hide = true)]
+    Completions {
+        /// The shell to generate for.
+        #[arg(value_name = "SHELL")]
+        shell: clap_complete::Shell,
+    },
+
     /// Serve CtxC over the Model Context Protocol, on stdin and stdout.
     ///
     /// Agents spawn this; people rarely run it directly, which is why it is

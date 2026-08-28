@@ -32,6 +32,10 @@ pub struct InitReport {
     pub index: Option<IndexSummary>,
     pub agents: Vec<AppliedChange>,
     pub daemon: DaemonOutcome,
+    /// The line that installs tab completion for the shell in use, when CtxC
+    /// can tell which shell that is.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completions: Option<String>,
 }
 
 /// What the index pass found, in the terms `init` cares about.
@@ -78,6 +82,11 @@ impl Render for InitReport {
                 out,
                 "  ctxc start --detach           keep the index up to date as you work"
             )?;
+        }
+        if let Some(line) = &self.completions {
+            writeln!(out)?;
+            writeln!(out, "For tab completion, once:")?;
+            writeln!(out, "  {line}")?;
         }
         Ok(())
     }
@@ -191,6 +200,7 @@ pub fn run<W: Write>(
         index: indexed,
         agents,
         daemon,
+        completions: super::completions::current_shell().map(super::completions::install_line),
     })?;
     Ok(())
 }
@@ -242,6 +252,7 @@ mod tests {
             }),
             agents: Vec::new(),
             daemon,
+            completions: None,
         };
         let mut buffer = Vec::new();
         Printer::new(OutputFormat::Human, &mut buffer)

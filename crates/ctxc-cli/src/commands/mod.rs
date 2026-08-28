@@ -5,6 +5,7 @@
 
 pub mod analyze;
 pub mod catalog;
+pub mod completions;
 pub mod config;
 pub mod daemon;
 pub mod dashboard;
@@ -114,6 +115,7 @@ pub fn dispatch<W: Write>(command: &Command, app: &App, printer: &mut Printer<W>
         Command::Config { action } => config::run(app, action.as_ref(), printer),
         Command::Dashboard { no_open } => dashboard::run(app, !no_open, printer),
         Command::Update { options } => update::run(app, options, printer),
+        Command::Completions { shell } => completions::run(*shell, printer),
         Command::Mcp => mcp::run(app, printer),
 
         // ---- names kept so older scripts keep working ----
