@@ -192,6 +192,27 @@ fn apply<W: Write>(
     installing: bool,
     printer: &mut Printer<W>,
 ) -> Result<()> {
+    let (changes, registered) = perform(app, name, path, detected_only, installing)?;
+
+    printer.emit(&ChangeReport {
+        action: if installing { "install" } else { "uninstall" },
+        changes,
+        registered,
+    })?;
+    Ok(())
+}
+
+/// Install or uninstall, reporting what changed rather than printing it.
+///
+/// `ctxc init` sets the detected agents up as one step of a longer sequence,
+/// so the outcome has to come back as a value instead of as output.
+pub fn perform(
+    app: &App,
+    name: Option<&str>,
+    path: Option<&PathBuf>,
+    detected_only: bool,
+    installing: bool,
+) -> Result<(Vec<AppliedChange>, bool)> {
     let (root, project) = target(app, path)?;
     let registered = registered_name(app, &root).is_some();
 
@@ -225,12 +246,7 @@ fn apply<W: Write>(
         });
     }
 
-    printer.emit(&ChangeReport {
-        action: if installing { "install" } else { "uninstall" },
-        changes,
-        registered,
-    })?;
-    Ok(())
+    Ok((changes, registered))
 }
 
 /// The project directory to work on, and what to call it.

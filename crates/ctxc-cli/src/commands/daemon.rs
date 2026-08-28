@@ -188,9 +188,10 @@ pub fn start<W: Write>(app: &App, detach: bool, printer: &mut Printer<W>) -> Res
 
 /// Start a daemon in the background, for a command that needs one running.
 ///
-/// `ctxc dashboard` should not make someone run `ctxc start` first, but it also
-/// has its own thing to report, so this starts the daemon and says nothing.
-pub fn start_for_dashboard(app: &App) -> Result<()> {
+/// `ctxc dashboard` should not make someone run `ctxc start` first, and
+/// `ctxc init` offers to leave one running; both have their own thing to
+/// report, so this starts the daemon and says nothing.
+pub fn start_in_background(app: &App) -> Result<()> {
     let mut quiet = Printer::new(crate::output::OutputFormat::Quiet, io::sink());
     start_detached(app, &mut quiet)
 }

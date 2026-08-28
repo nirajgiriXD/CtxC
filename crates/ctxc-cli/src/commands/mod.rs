@@ -9,6 +9,7 @@ pub mod config;
 pub mod daemon;
 pub mod dashboard;
 pub mod index;
+pub mod init;
 pub mod input;
 pub mod integrations;
 pub mod mcp;
@@ -53,6 +54,22 @@ pub(crate) fn record(app: &App, command: &str) -> Option<ctxc_core::processes::R
 /// and they route to exactly the same work.
 pub fn dispatch<W: Write>(command: &Command, app: &App, printer: &mut Printer<W>) -> Result<()> {
     match command {
+        Command::Init {
+            path,
+            no_index,
+            no_agents,
+            start,
+            yes,
+        } => init::run(
+            app,
+            path.as_ref(),
+            *no_index,
+            *no_agents,
+            *start,
+            *yes,
+            printer,
+        ),
+
         Command::Optimize {
             inputs,
             dry_run,

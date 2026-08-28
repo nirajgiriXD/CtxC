@@ -1,8 +1,9 @@
 //! Command line surface.
 //!
-//! Nine commands are advertised, grouped by what a person is trying to do:
-//! shrink some input, find some context, look after a project, start and stop
-//! the daemon, see how things stand, configure, open the dashboard, upgrade.
+//! Ten commands are advertised, grouped by what a person is trying to do: set
+//! a project up, shrink some input, find some context, look after a project,
+//! start and stop the daemon, see how things stand, configure, open the
+//! dashboard, upgrade.
 //!
 //! Every name CtxC used to have still parses, as a hidden command, so a script
 //! written against an older build keeps working. Hidden means absent from
@@ -44,6 +45,32 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
+    /// Set a project up: register it, index it, and tell your agents about it.
+    ///
+    /// One command instead of four. Every step is idempotent, so running it
+    /// again on a project that is already set up is a way of checking on it.
+    Init {
+        /// The project directory. Defaults to the current one.
+        #[arg(value_name = "PATH")]
+        path: Option<PathBuf>,
+
+        /// Register the project without reading its code.
+        #[arg(long)]
+        no_index: bool,
+
+        /// Leave the agent instruction files alone.
+        #[arg(long)]
+        no_agents: bool,
+
+        /// Start the daemon without asking.
+        #[arg(long)]
+        start: bool,
+
+        /// Answer yes to every question, for unattended runs.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
     /// Optimize input and write the result to stdout.
     ///
     /// Takes one file, several files, standard input, or — after `--` — a
@@ -591,6 +618,7 @@ mod tests {
         assert_eq!(
             listed,
             [
+                "init",
                 "optimize",
                 "find",
                 "project",

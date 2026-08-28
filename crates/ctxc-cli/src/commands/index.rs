@@ -130,6 +130,16 @@ pub fn index<W: Write>(
     force: bool,
     printer: &mut Printer<W>,
 ) -> Result<()> {
+    let report = perform(app, root, force)?;
+    printer.emit(&report)?;
+    Ok(())
+}
+
+/// Run an index pass and record what it cost, without reporting it.
+///
+/// `ctxc init` runs the same pass as part of a longer sequence, and a command
+/// that emits one document must not have a second one printed from inside it.
+pub fn perform(app: &App, root: &Path, force: bool) -> Result<IndexReport> {
     let database = app.open_database()?;
     let store = SqliteIndexStore::new(&database);
     let options = IndexOptions {
@@ -157,8 +167,7 @@ pub fn index<W: Write>(
 
     app.record(index_event(&report, &index::root_key(root), &database));
 
-    printer.emit(&report)?;
-    Ok(())
+    Ok(report)
 }
 
 /// Describe an index pass as a metric.

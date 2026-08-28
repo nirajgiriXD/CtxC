@@ -180,6 +180,7 @@ fn usage(path: &str, arguments: &[ArgumentInfo], has_options: bool, command: &Co
 /// flags do.
 fn examples(path: &str) -> Vec<String> {
     let lines: &[&str] = match path {
+        "init" => &["ctxc init", "ctxc init . --start", "ctxc init --no-agents"],
         "optimize" => &[
             "ctxc optimize notes.md --budget 2000",
             "ctxc optimize README.md src/lib.rs --budget 8000",
@@ -220,6 +221,7 @@ fn examples(path: &str) -> Vec<String> {
 /// Where the dashboard does the same work, when it does.
 fn equivalent(path: &str) -> Option<DashboardEquivalent> {
     let (route, label) = match path {
+        "init" => ("/projects", "Add project"),
         "status" => ("/system", "System status"),
         "stop" => ("/system", "Stop daemon & dashboard"),
         "config" | "config show" | "config path" | "config init" => ("/settings", "Settings"),
@@ -274,6 +276,7 @@ mod tests {
         assert_eq!(
             top,
             [
+                "init",
                 "optimize",
                 "find",
                 "project",

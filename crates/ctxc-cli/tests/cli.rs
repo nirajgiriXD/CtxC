@@ -330,6 +330,7 @@ fn help_lists_the_grouped_commands_only() {
     assert_eq!(
         listed,
         [
+            "init",
             "optimize",
             "find",
             "project",
@@ -3403,4 +3404,70 @@ fn status_reports_the_daemon_in_full_when_asked() {
     let old = sandbox.run(&["daemon", "status", "--format", "json"]);
     assert_success(&old);
     assert_eq!(stdout(&old), stdout(&output));
+}
+
+#[test]
+fn init_registers_indexes_and_reports_what_to_do_next() {
+    let sandbox = Sandbox::new("init");
+    let project = sample_project(&sandbox);
+
+    let output = sandbox.run(&["init", path_str(&project), "--format", "json"]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(json["registered"], true);
+    assert_eq!(json["project"], "project");
+    assert!(json["index"]["files"].as_u64().unwrap() >= 3, "{json}");
+    assert!(json["index"]["symbols"].as_u64().unwrap() >= 1, "{json}");
+    assert_eq!(json["daemon"], "not_started");
+
+    // What init set up is what the other commands see.
+    let listed = sandbox.run(&["project", "list", "--format", "json"]);
+    assert_success(&listed);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&listed)).unwrap();
+    assert_eq!(json["projects"].as_array().unwrap().len(), 1);
+
+    let found = sandbox.run(&["find", "authenticate", "--path", path_str(&project)]);
+    assert_success(&found);
+    assert!(stdout(&found).contains("auth.ts"), "{}", stdout(&found));
+}
+
+/// Every step `init` runs is idempotent, so the command as a whole must be.
+#[test]
+fn init_run_twice_changes_nothing_and_still_succeeds() {
+    let sandbox = Sandbox::new("init-twice");
+    let project = sample_project(&sandbox);
+
+    assert_success(&sandbox.run(&["init", path_str(&project)]));
+    let output = sandbox.run(&["init", path_str(&project), "--format", "json"]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(json["registered"], false, "the project was added twice");
+    assert!(json["index"]["symbols"].as_u64().unwrap() >= 1, "{json}");
+
+    let listed = sandbox.run(&["project", "list", "--format", "json"]);
+    let json: serde_json::Value = serde_json::from_str(&stdout(&listed)).unwrap();
+    assert_eq!(json["projects"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn init_can_skip_the_work_it_is_told_to_skip() {
+    let sandbox = Sandbox::new("init-skip");
+    let project = sample_project(&sandbox);
+
+    let output = sandbox.run(&[
+        "init",
+        path_str(&project),
+        "--no-index",
+        "--no-agents",
+        "--format",
+        "json",
+    ]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(json["registered"], true);
+    assert!(json["index"].is_null(), "nothing should have been indexed");
+    assert_eq!(json["agents"].as_array().unwrap().len(), 0);
 }

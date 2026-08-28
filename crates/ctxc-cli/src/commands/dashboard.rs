@@ -135,7 +135,7 @@ fn running_daemon(app: &App) -> Result<(ctxc_daemon::lock::Lock, bool)> {
     }
 
     tracing::info!("starting a daemon to serve the dashboard");
-    crate::commands::daemon::start_for_dashboard(app)?;
+    crate::commands::daemon::start_in_background(app)?;
 
     match ctxc_daemon::status(app.paths().data_dir())? {
         DaemonState::Running { lock, .. } => Ok((*lock, true)),
