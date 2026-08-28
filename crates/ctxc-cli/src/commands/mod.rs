@@ -9,6 +9,7 @@ pub mod completions;
 pub mod config;
 pub mod daemon;
 pub mod dashboard;
+pub mod doctor;
 pub mod index;
 pub mod init;
 pub mod input;
@@ -97,6 +98,7 @@ pub fn dispatch<W: Write>(command: &Command, app: &App, printer: &mut Printer<W>
         Command::Project { action } => project::run(app, action, printer),
         Command::Start { detach } => daemon::start(app, *detach, printer),
         Command::Stop { all } => stop::run(app, *all, printer),
+        Command::Doctor => doctor::run(app, printer),
 
         Command::Status {
             daemon: only_daemon,

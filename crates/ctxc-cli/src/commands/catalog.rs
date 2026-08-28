@@ -200,6 +200,7 @@ fn examples(path: &str) -> Vec<String> {
             "ctxc project graph .",
             "ctxc project graph . --file src/main.rs",
         ],
+        "doctor" => &["ctxc doctor", "ctxc doctor --format json"],
         "status" => &[
             "ctxc status",
             "ctxc status --daemon",
@@ -222,7 +223,7 @@ fn examples(path: &str) -> Vec<String> {
 fn equivalent(path: &str) -> Option<DashboardEquivalent> {
     let (route, label) = match path {
         "init" => ("/projects", "Add project"),
-        "status" => ("/system", "System status"),
+        "status" | "doctor" => ("/system", "System status"),
         "stop" => ("/system", "Stop daemon & dashboard"),
         "config" | "config show" | "config path" | "config init" => ("/settings", "Settings"),
         "config agents" => ("/settings", "Agent integrations"),
@@ -282,6 +283,7 @@ mod tests {
                 "project",
                 "start",
                 "stop",
+                "doctor",
                 "status",
                 "config",
                 "dashboard",

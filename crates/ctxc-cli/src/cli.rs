@@ -146,6 +146,12 @@ pub enum Command {
         all: bool,
     },
 
+    /// Check this installation for problems, and say how to fix each one.
+    ///
+    /// `status` reports what CtxC is. This reports whether anything about it
+    /// is wrong, and exits non-zero when something is.
+    Doctor,
+
     /// Show the state of this CtxC installation.
     Status {
         /// Report the running daemon in full: uptime, projects, what it watches.
@@ -635,6 +641,7 @@ mod tests {
                 "project",
                 "start",
                 "stop",
+                "doctor",
                 "status",
                 "config",
                 "dashboard",

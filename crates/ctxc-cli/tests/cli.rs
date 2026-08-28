@@ -336,6 +336,7 @@ fn help_lists_the_grouped_commands_only() {
             "project",
             "start",
             "stop",
+            "doctor",
             "status",
             "config",
             "dashboard",
@@ -3571,5 +3572,58 @@ fn indexing_prints_no_progress_when_its_output_is_captured() {
         !stderr(&output).contains("files seen"),
         "{}",
         stderr(&output)
+    );
+}
+
+#[test]
+fn doctor_passes_on_a_healthy_installation() {
+    let sandbox = Sandbox::new("doctor-clean");
+    let output = sandbox.run(&["doctor", "--format", "json"]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(json["failures"], 0, "{json}");
+    assert!(json["checks"].as_array().unwrap().len() >= 4, "{json}");
+}
+
+/// The check the plan was written around: a registered directory that is gone
+/// must be named, with the command that forgets it.
+#[test]
+fn doctor_names_a_project_whose_directory_has_gone() {
+    let sandbox = Sandbox::new("doctor-missing");
+    let project = sample_project(&sandbox);
+    assert_success(&sandbox.run(&["project", "add", path_str(&project)]));
+    std::fs::remove_dir_all(&project).unwrap();
+
+    let output = sandbox.run(&["doctor"]);
+    assert!(
+        !output.status.success(),
+        "a broken installation must exit non-zero"
+    );
+
+    let text = stdout(&output);
+    assert!(text.contains("no longer exists"), "{text}");
+    assert!(text.contains("ctxc project remove project"), "{text}");
+}
+
+#[test]
+fn doctor_warns_about_a_project_that_was_never_indexed() {
+    let sandbox = Sandbox::new("doctor-unindexed");
+    let project = sample_project(&sandbox);
+    assert_success(&sandbox.run(&["project", "add", path_str(&project)]));
+
+    let output = sandbox.run(&["doctor", "--format", "json"]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(json["failures"], 0);
+    let checks = json["checks"].as_array().unwrap();
+    assert!(
+        checks.iter().any(|check| check["detail"] == "never indexed"
+            && check["fix"]
+                .as_str()
+                .unwrap()
+                .contains("ctxc project index")),
+        "{json}"
     );
 }
