@@ -543,6 +543,13 @@ pub struct OptimizeOptions {
     /// its `ctxc://context/<id>` reference.
     #[arg(long)]
     pub no_store: bool,
+
+    /// Optimize again rather than reusing a remembered result.
+    ///
+    /// The same bytes under the same settings produce the same document, so
+    /// the second run is normally free. This does the work anyway.
+    #[arg(long)]
+    pub no_cache: bool,
 }
 
 #[derive(Debug, Subcommand)]

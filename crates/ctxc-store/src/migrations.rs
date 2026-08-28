@@ -55,6 +55,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "embeddings",
         sql: include_str!("../migrations/0007_embeddings.sql"),
     },
+    Migration {
+        version: 8,
+        name: "optimizations",
+        sql: include_str!("../migrations/0008_optimizations.sql"),
+    },
 ];
 
 /// The schema version a fully migrated database has.
@@ -127,7 +132,7 @@ mod tests {
     #[test]
     fn migrating_twice_is_a_no_op() {
         let mut conn = Connection::open_in_memory().unwrap();
-        assert_eq!(migrate(&mut conn).unwrap(), vec![1, 2, 3, 4, 5, 6, 7]);
+        assert_eq!(migrate(&mut conn).unwrap(), vec![1, 2, 3, 4, 5, 6, 7, 8]);
         assert_eq!(current_version(&conn).unwrap(), latest_version());
         assert!(migrate(&mut conn).unwrap().is_empty());
     }

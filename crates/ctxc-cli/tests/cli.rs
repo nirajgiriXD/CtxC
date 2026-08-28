@@ -3627,3 +3627,73 @@ fn doctor_warns_about_a_project_that_was_never_indexed() {
         "{json}"
     );
 }
+
+#[test]
+fn optimizing_the_same_input_twice_reuses_the_first_result() {
+    let sandbox = Sandbox::new("optimize-cache");
+    let input = sandbox.path("notes.txt");
+    std::fs::write(&input, SAMPLE).unwrap();
+
+    let first = sandbox.run(&["optimize", path_str(&input), "--format", "json"]);
+    assert_success(&first);
+    let first: serde_json::Value = serde_json::from_str(&stdout(&first)).unwrap();
+    assert_eq!(first["cached"], false);
+
+    let second = sandbox.run(&["optimize", path_str(&input), "--format", "json"]);
+    assert_success(&second);
+    let second: serde_json::Value = serde_json::from_str(&stdout(&second)).unwrap();
+
+    assert_eq!(second["cached"], true, "the second run did the work again");
+    assert_eq!(
+        second["content"], first["content"],
+        "a reused result must be the result it reused"
+    );
+    assert_eq!(second["result"], first["result"]);
+}
+
+#[test]
+fn no_cache_does_the_work_again() {
+    let sandbox = Sandbox::new("optimize-no-cache");
+    let input = sandbox.path("notes.txt");
+    std::fs::write(&input, SAMPLE).unwrap();
+
+    assert_success(&sandbox.run(&["optimize", path_str(&input)]));
+    let output = sandbox.run(&[
+        "optimize",
+        path_str(&input),
+        "--no-cache",
+        "--format",
+        "json",
+    ]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).unwrap();
+    assert_eq!(json["cached"], false);
+}
+
+/// The key carries the settings, so turning optimization off must not return
+/// the document the previous settings produced.
+#[test]
+fn changing_configuration_invalidates_a_remembered_result() {
+    let sandbox = Sandbox::new("optimize-cache-config");
+    let input = sandbox.path("notes.txt");
+    std::fs::write(&input, SAMPLE).unwrap();
+
+    let first = sandbox.run(&["optimize", path_str(&input), "--format", "json"]);
+    assert_success(&first);
+    let first: serde_json::Value = serde_json::from_str(&stdout(&first)).unwrap();
+
+    std::fs::write(
+        sandbox.path("config.toml"),
+        "[optimization]\nenabled = false\n",
+    )
+    .unwrap();
+
+    let second = sandbox.run(&["optimize", path_str(&input), "--format", "json"]);
+    assert_success(&second);
+    let second: serde_json::Value = serde_json::from_str(&stdout(&second)).unwrap();
+
+    assert_eq!(second["cached"], false, "settings are part of the key");
+    assert_eq!(second["result"]["optimizer"], "passthrough");
+    assert_ne!(second["content"], first["content"]);
+}

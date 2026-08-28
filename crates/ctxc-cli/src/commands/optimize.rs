@@ -22,7 +22,10 @@ use ctxc_core::optimization::{OptimizationResult, SavingsByStage};
 use ctxc_core::{Context, ContextSource, TokenBudget};
 use ctxc_engine::{Compilation, Engine};
 use ctxc_metrics::{MetricEvent, Operation};
-use ctxc_store::{ContextStore, SqliteContextStore};
+use ctxc_store::{
+    CachedOptimization, ContextStore, OptimizationKey, OptimizationStore, SqliteContextStore,
+    SqliteOptimizationStore,
+};
 
 use crate::app::App;
 use crate::cli::OptimizeOptions;
@@ -39,6 +42,9 @@ pub struct OptimizeReport {
     /// Exit code of the captured command, when the input came from one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub exit_code: Option<i32>,
+    /// True when this document was remembered from an earlier identical run
+    /// rather than produced now.
+    pub cached: bool,
     pub content: String,
     pub result: OptimizationResult,
 }
@@ -50,6 +56,12 @@ impl Render for OptimizeReport {
             writeln!(out, "Exit code:        {code}")?;
         }
         writeln!(out, "Reference:        {}", self.reference)?;
+        if self.cached {
+            writeln!(
+                out,
+                "                  (reused from an identical earlier run)"
+            )?;
+        }
         if !self.stored {
             writeln!(out, "                  (original not stored)")?;
         }
@@ -199,15 +211,31 @@ fn run_one<W: Write>(
     exit_code: Option<i32>,
 ) -> Result<()> {
     let engine = Engine::from_config(&app.config);
+    let budget = options
+        .budget
+        .map(TokenBudget::new)
+        .unwrap_or_else(|| engine.options().default_budget);
     let started = std::time::Instant::now();
-    let optimized = engine
-        .optimize(&context, options.budget.map(TokenBudget::new))
-        .context("failed to optimize input")?;
+
+    // Optimization is deterministic, so an identical earlier run is the answer
+    // rather than a hint about it. Agents re-run the same commands constantly,
+    // which makes this the common path and not the clever one.
+    let (optimized, cached) = match reuse(app, &engine, &context, budget, options.no_cache) {
+        Some(remembered) => (remembered, true),
+        None => {
+            let produced = engine
+                .optimize(&context, Some(budget))
+                .context("failed to optimize input")?;
+            remember(app, &engine, &context, budget, &produced, options.no_cache);
+            (produced, false)
+        }
+    };
 
     let source = ctxc_context::ingest::label(&context.metadata.source);
     app.record(
         MetricEvent::from_result(Operation::Optimize, &source, &optimized.result)
-            .took(started.elapsed()),
+            .took(started.elapsed())
+            .with_cache_hit(cached),
     );
 
     let stored = store_originals(app, std::slice::from_ref(&context), options.no_store)?;
@@ -217,11 +245,89 @@ fn run_one<W: Write>(
         reference: optimized.reference(),
         stored,
         exit_code,
+        cached,
         content: optimized.content,
         result: optimized.result,
     };
 
     emit(printer, &report, &report.content)
+}
+
+/// What an identical earlier run produced, if there was one.
+///
+/// Every failure here is a miss: the work can always be done again, and a
+/// cache that can break a command is worse than no cache.
+fn reuse(
+    app: &App,
+    engine: &Engine,
+    context: &Context,
+    budget: TokenBudget,
+    skip: bool,
+) -> Option<ctxc_core::OptimizedContext> {
+    if skip {
+        return None;
+    }
+
+    let settings = engine.settings_fingerprint();
+    let optimizer = engine.optimizer_for(context);
+    let hash = ctxc_core::id::content_hash(context.content.as_bytes());
+
+    let database = app.open_database().ok()?;
+    let found = SqliteOptimizationStore::new(&database)
+        .cached(OptimizationKey {
+            content_hash: &hash,
+            optimizer: optimizer.name(),
+            budget: budget.total(),
+            settings: &settings,
+        })
+        .inspect_err(|err| tracing::debug!(error = %err, "could not read the optimization cache"))
+        .ok()??;
+
+    Some(ctxc_core::OptimizedContext {
+        source_id: context.id.clone(),
+        content: found.content,
+        result: found.result,
+    })
+}
+
+/// Remember what this run produced, so the next identical one is free.
+fn remember(
+    app: &App,
+    engine: &Engine,
+    context: &Context,
+    budget: TokenBudget,
+    optimized: &ctxc_core::OptimizedContext,
+    skip: bool,
+) {
+    if skip {
+        return;
+    }
+
+    let settings = engine.settings_fingerprint();
+    let optimizer = engine.optimizer_for(context);
+    let hash = ctxc_core::id::content_hash(context.content.as_bytes());
+
+    let write = || -> anyhow::Result<()> {
+        let database = app.open_database()?;
+        SqliteOptimizationStore::new(&database).remember(
+            OptimizationKey {
+                content_hash: &hash,
+                optimizer: optimizer.name(),
+                budget: budget.total(),
+                settings: &settings,
+            },
+            &CachedOptimization {
+                content: optimized.content.clone(),
+                result: optimized.result.clone(),
+            },
+        )?;
+        Ok(())
+    };
+
+    // Nothing about the command's own result depends on this having worked.
+    if let Err(err) = write() {
+        tracing::debug!(error = %err, "could not remember this optimization");
+    }
 }
 
 pub fn compile<W: Write>(

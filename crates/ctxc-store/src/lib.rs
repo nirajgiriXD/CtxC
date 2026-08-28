@@ -13,6 +13,7 @@ pub mod index_store;
 pub mod memory_store;
 pub mod metrics_store;
 pub mod migrations;
+pub mod optimization_store;
 pub mod project_store;
 
 pub use context_store::{ContextStore, SqliteContextStore};
@@ -25,4 +26,7 @@ pub use index_store::{IndexCounts, IndexStore, SqliteIndexStore, StoredFingerpri
 pub use memory_store::{Memory, MemoryStore, SqliteMemoryStore};
 pub use metrics_store::SqliteMetricsStore;
 pub use migrations::latest_version as latest_schema_version;
+pub use optimization_store::{
+    CachedOptimization, OptimizationKey, OptimizationStore, SqliteOptimizationStore,
+};
 pub use project_store::SqliteProjectStore;

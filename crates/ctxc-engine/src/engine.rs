@@ -177,6 +177,25 @@ impl Engine {
         Ok(self.optimizer_for(context).optimize(context, None)?)
     }
 
+    /// A fingerprint of everything about this engine that decides its output.
+    ///
+    /// What an optimizer produces depends on more than the bytes it is given:
+    /// the tokenizer counting them, whether optimization is on at all, and the
+    /// deduplication settings all change the answer. Anything remembering an
+    /// optimization has to key on this, or a configuration change silently
+    /// keeps returning results from the old one.
+    pub fn settings_fingerprint(&self) -> String {
+        let described = format!(
+            "tokenizer={};enabled={};default_budget={};semantic_dedup={};redundancy={:.6}",
+            self.tokenizer.name(),
+            self.options.optimization_enabled,
+            self.options.default_budget.total(),
+            self.options.semantic_deduplication,
+            self.options.redundancy_threshold,
+        );
+        ctxc_core::id::content_hash(described.as_bytes())
+    }
+
     /// The optimizer that will handle `context`, honouring the global switch.
     pub fn optimizer_for(&self, context: &Context) -> Arc<dyn ContextOptimizer> {
         if self.options.optimization_enabled {
