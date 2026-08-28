@@ -1,0 +1,144 @@
+name: Release
+
+# Tagging is the whole trigger. A release is a decision, not something that
+# should happen because someone pushed to a branch.
+on:
+  push:
+    tags: ["v*"]
+  # So the build can be proved without spending a version number on it. A
+  # manual run uploads nothing.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The dashboard is a Vite app compiled into the binary. Building it once and
+  # handing the same `dist` to every target keeps four binaries carrying four
+  # identical copies from being four separate npm installs — and guarantees
+  # they really are identical.
+  dashboard:
+    name: dashboard
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: crates/ctxc-dashboard/ui/package-lock.json
+
+      - name: Build the dashboard
+        working-directory: crates/ctxc-dashboard/ui
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dashboard-dist
+          path: crates/ctxc-dashboard/ui/dist
+          if-no-files-found: error
+
+  build:
+    name: ${{ matrix.target }}
+    needs: dashboard
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+          - target: x86_64-apple-darwin
+            os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup target add ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      # Put the dashboard where the build script looks for it, before cargo
+      # runs. Without this the binary compiles fine and carries no web
+      # interface, which is not what a release should ship.
+      - uses: actions/download-artifact@v4
+        with:
+          name: dashboard-dist
+          path: crates/ctxc-dashboard/ui/dist
+
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }} -p ctxc-cli
+
+      # One archive per platform, in the format that platform's users already
+      # have a tool for. The version is in the name so a download sitting in
+      # somebody's folder still says what it is.
+      - name: Package (unix)
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="ctxc-${version}-${{ matrix.target }}"
+          mkdir -p "dist/${name}"
+          cp "target/${{ matrix.target }}/release/ctxc" "dist/${name}/"
+          cp README.md LICENSE USAGE.md "dist/${name}/"
+          tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+
+      - name: Package (windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          name="ctxc-${version}-${{ matrix.target }}"
+          mkdir -p "dist/${name}"
+          cp "target/${{ matrix.target }}/release/ctxc.exe" "dist/${name}/"
+          cp README.md LICENSE USAGE.md "dist/${name}/"
+          (cd dist && 7z a "${name}.zip" "${name}")
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: archive-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    # A manual run proves the build; only a tag spends a version number.
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: archive-*
+          merge-multiple: true
+          path: dist
+
+      # One file listing every archive's hash, so an installer can verify what
+      # it downloaded without a second request per platform.
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum * > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true

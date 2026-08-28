@@ -1,8 +1,12 @@
 //! `ctxc update`
 //!
-//! CtxC is installed by building it, so updating it means doing that again:
-//! fast-forward the source checkout to the latest `main`, build the release
-//! binary, and put it where the running one is.
+//! Updating a CtxC built from source means building it again: fast-forward the
+//! checkout to the latest `main`, build the release binary, and put it where
+//! the running one is.
+//!
+//! A CtxC installed from a release has no checkout to build, so there is
+//! nothing here for it to do. Rather than failing at it, this says which
+//! install command replaces it — the same one that put it there.
 //!
 //! Two things make this more than a shell one-liner. The executable being
 //! replaced is the one running the update, which is handled by renaming it
@@ -30,6 +34,17 @@ const REMOTE: &str = "origin";
 
 /// Where the source path is remembered, inside the data directory.
 const SOURCE_FILE: &str = "source-path";
+
+/// The one-line install for this platform, which is also how a released binary
+/// is updated: the script downloads the newest release, checks it against the
+/// published checksums, and replaces what is there.
+#[cfg(windows)]
+const INSTALL_COMMAND: &str =
+    "irm https://raw.githubusercontent.com/nirajgirixd/ctxc/main/install.ps1 | iex";
+
+#[cfg(not(windows))]
+const INSTALL_COMMAND: &str =
+    "curl -fsSL https://raw.githubusercontent.com/nirajgirixd/ctxc/main/install.sh | sh";
 
 /// What the web UI did, or did not do, during an update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -345,12 +360,18 @@ fn resolve_source(app: &App, requested: Option<&Path>, executable: &Path) -> Res
         }
     }
 
+    // No checkout anywhere is what an installed binary looks like, and it is
+    // the normal case now that releases are published. The installer replaces
+    // it in place, verifying the download on the way — which is the update.
     Err(
-        CliError::new("could not find a CtxC source checkout to update from")
-            .with_hint(
-                "clone https://github.com/nirajgirixd/ctxc, then run \
+        CliError::new("this CtxC was not built from a source checkout")
+            .with_hint(format!(
+                "install the latest release over it:\n  {}\n\nor, to build \
+                 from source instead, clone \
+                 https://github.com/nirajgirixd/ctxc and run \
                  `ctxc update --source <PATH>` once; the path is remembered",
-            )
+                INSTALL_COMMAND
+            ))
             .into(),
     )
 }
