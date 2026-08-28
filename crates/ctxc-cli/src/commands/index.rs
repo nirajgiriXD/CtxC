@@ -3,20 +3,22 @@
 //! The three views of the code index: build it, look at how files depend on
 //! each other, and find where something is defined.
 
-use std::io::{self, Write};
+use std::cell::Cell;
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context as _, Result};
 use serde::Serialize;
 
-use ctxc_engine::index::{self, IndexOptions, IndexReport, Indexer};
+use ctxc_engine::index::{self, IndexOptions, IndexProgress, IndexReport, Indexer};
 use ctxc_engine::ProjectEmbedder;
 use ctxc_metrics::{MetricEvent, Operation};
 use ctxc_semantic::SemanticOptions;
 use ctxc_store::{IndexStore, SqliteEmbeddingStore, SqliteIndexStore};
 
 use crate::app::App;
-use crate::output::{human_count, Printer, Render};
+use crate::output::{human_count, OutputFormat, Printer, Render};
 
 impl Render for IndexReport {
     fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
@@ -130,7 +132,7 @@ pub fn index<W: Write>(
     force: bool,
     printer: &mut Printer<W>,
 ) -> Result<()> {
-    let report = perform(app, root, force)?;
+    let report = perform(app, root, force, printer.format() == OutputFormat::Human)?;
     printer.emit(&report)?;
     Ok(())
 }
@@ -139,7 +141,10 @@ pub fn index<W: Write>(
 ///
 /// `ctxc init` runs the same pass as part of a longer sequence, and a command
 /// that emits one document must not have a second one printed from inside it.
-pub fn perform(app: &App, root: &Path, force: bool) -> Result<IndexReport> {
+///
+/// `show_progress` only asks: a line is drawn when stderr is a terminal, so
+/// piped output is unchanged whatever the caller wanted.
+pub fn perform(app: &App, root: &Path, force: bool, show_progress: bool) -> Result<IndexReport> {
     let database = app.open_database()?;
     let store = SqliteIndexStore::new(&database);
     let options = IndexOptions {
@@ -155,11 +160,15 @@ pub fn perform(app: &App, root: &Path, force: bool) -> Result<IndexReport> {
 
     // One transaction for the whole pass: thousands of small writes, and an
     // interrupted run should leave the previous index intact.
+    let progress = TerminalProgress::start(show_progress);
     let report = database
         .transaction(|| {
             let mut indexer = Indexer::new(&store);
             if let Some(embedder) = &embedder {
                 indexer = indexer.with_embedder(embedder);
+            }
+            if let Some(progress) = &progress {
+                indexer = indexer.with_progress(progress);
             }
             indexer.index(root, &options)
         })
@@ -168,6 +177,54 @@ pub fn perform(app: &App, root: &Path, force: bool) -> Result<IndexReport> {
     app.record(index_event(&report, &index::root_key(root), &database));
 
     Ok(report)
+}
+
+/// One rewriting line on stderr, while an index pass runs.
+///
+/// Only when stderr is a terminal: a redrawn line is control characters and a
+/// carriage return, which is exactly what nobody wants in a log file or on the
+/// far end of a pipe. Nothing here is on the critical path, so a write that
+/// fails is dropped rather than reported.
+struct TerminalProgress {
+    started: Instant,
+    /// Width of the last line drawn, so the next one can cover it completely.
+    /// A shorter line over a longer one would otherwise leave its tail behind.
+    width: Cell<usize>,
+}
+
+impl TerminalProgress {
+    /// A reporter, or `None` when nobody is watching.
+    fn start(wanted: bool) -> Option<TerminalProgress> {
+        (wanted && io::stderr().is_terminal()).then(|| TerminalProgress {
+            started: Instant::now(),
+            width: Cell::new(0),
+        })
+    }
+
+    fn draw(&self, line: &str) {
+        let padding = self.width.get().saturating_sub(line.chars().count());
+        let _ = write!(io::stderr(), "\r{line}{:padding$}", "");
+        let _ = io::stderr().flush();
+        self.width.set(line.chars().count());
+    }
+}
+
+impl IndexProgress for TerminalProgress {
+    fn advance(&self, seen: u64, indexed: u64) {
+        self.draw(&format!(
+            "  {} files seen, {} parsed, {:.1}s",
+            human_count(seen as u32),
+            human_count(indexed as u32),
+            self.started.elapsed().as_secs_f64()
+        ));
+    }
+
+    fn finish(&self) {
+        // Clear the line rather than leaving it above the report: the report
+        // says the same things, in full.
+        let _ = write!(io::stderr(), "\r{:width$}\r", "", width = self.width.get());
+        let _ = io::stderr().flush();
+    }
 }
 
 /// Describe an index pass as a metric.

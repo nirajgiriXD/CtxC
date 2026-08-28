@@ -3541,3 +3541,35 @@ fn completions_are_generated_for_every_supported_shell() {
         }
     }
 }
+
+/// The progress line is drawn with carriage returns, which belong on a
+/// terminal and nowhere else. Captured output must not carry them.
+#[test]
+fn indexing_prints_no_progress_when_its_output_is_captured() {
+    let sandbox = Sandbox::new("progress-piped");
+    let project = sample_project(&sandbox);
+
+    let output = sandbox.run(&["project", "index", path_str(&project)]);
+    assert_success(&output);
+    assert!(
+        !stderr(&output).contains('\r'),
+        "a redrawn line reached a pipe: {:?}",
+        stderr(&output)
+    );
+
+    let output = sandbox.run(&[
+        "project",
+        "index",
+        path_str(&project),
+        "--force",
+        "--format",
+        "json",
+    ]);
+    assert_success(&output);
+    serde_json::from_str::<serde_json::Value>(&stdout(&output)).expect("valid json");
+    assert!(
+        !stderr(&output).contains("files seen"),
+        "{}",
+        stderr(&output)
+    );
+}

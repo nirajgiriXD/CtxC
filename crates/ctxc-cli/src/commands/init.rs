@@ -127,7 +127,7 @@ pub fn run<W: Write>(
         None
     } else {
         step(human, 2, format!("indexing {}...", project.path));
-        let report = super::index::perform(app, Path::new(&project.path), false)?;
+        let report = super::index::perform(app, Path::new(&project.path), false, human)?;
         let at = ctxc_core::Timestamp::now();
         Registry::new(&store).record_indexed(&project.id, at)?;
 

@@ -129,11 +129,26 @@ impl ChangeReport {
     }
 }
 
+/// Told how far an index pass has got.
+///
+/// A pass over a large repository takes long enough that silence is
+/// indistinguishable from a hang. The engine reports; deciding whether anyone
+/// is watching, and what a progress line should look like, belongs to whatever
+/// owns the terminal.
+pub trait IndexProgress {
+    /// Files walked so far, and how many of those were parsed and written.
+    fn advance(&self, seen: u64, indexed: u64);
+
+    /// The pass is over; leave the terminal as it was found.
+    fn finish(&self);
+}
+
 /// Indexes projects into an [`IndexStore`].
 pub struct Indexer<'a> {
     store: &'a dyn IndexStore,
     parsers: ParserRegistry,
     embedder: Option<&'a crate::embed::ProjectEmbedder<'a>>,
+    progress: Option<&'a dyn IndexProgress>,
 }
 
 impl<'a> Indexer<'a> {
@@ -142,7 +157,14 @@ impl<'a> Indexer<'a> {
             store,
             parsers: ParserRegistry::new(),
             embedder: None,
+            progress: None,
         }
+    }
+
+    /// Report progress as the pass runs.
+    pub fn with_progress(mut self, progress: &'a dyn IndexProgress) -> Self {
+        self.progress = Some(progress);
+        self
     }
 
     /// Also embed each file's text as it is indexed.
@@ -196,6 +218,8 @@ impl<'a> Indexer<'a> {
             seen.insert(entry.path.as_str());
         }
 
+        let mut seen_files = 0u64;
+
         // Prepare a batch across every core, then write it here. `map_init`
         // hands each worker its own parser registry, which is what tree-sitter
         // requires: cheap to reuse, not safe to share.
@@ -216,6 +240,17 @@ impl<'a> Indexer<'a> {
             for (entry, outcome) in batch.iter().zip(prepared) {
                 self.write_prepared(&root_key, entry, outcome?, &mut report)?;
             }
+
+            // Once a batch, not once a file: a line that redraws thousands of
+            // times a second costs more than the work it is describing.
+            seen_files += batch.len() as u64;
+            if let Some(progress) = self.progress {
+                progress.advance(seen_files, report.indexed);
+            }
+        }
+
+        if let Some(progress) = self.progress {
+            progress.finish();
         }
 
         // The same map answers "what did the index hold that the walk did not

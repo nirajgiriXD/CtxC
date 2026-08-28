@@ -23,5 +23,5 @@ pub use compile::{Compilation, CompiledSection};
 pub use embed::{ProjectEmbedder, QuerySimilarity, Similar};
 pub use engine::{Engine, EngineOptions};
 pub use error::{EngineError, Result};
-pub use index::{IndexOptions, IndexReport, Indexer};
+pub use index::{IndexOptions, IndexProgress, IndexReport, Indexer};
 pub use router::Router;
