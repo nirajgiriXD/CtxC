@@ -18,6 +18,7 @@ ctxc-retrieval.workspace = true
 ctxc-semantic.workspace = true
 ctxc-store.workspace = true
 ctxc-watcher.workspace = true
+rayon.workspace = true
 serde = { workspace = true }
 thiserror.workspace = true
 tracing.workspace = true

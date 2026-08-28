@@ -10,16 +10,23 @@
 //!      -> otherwise   -> parse, resolve imports, replace rows
 //! ```
 //!
+//! A full pass runs that decision in two halves. Reading, hashing, parsing and
+//! resolving imports touch no shared state, so they run across every core at
+//! once; writing is then a serial drain of the results, in walk order, inside
+//! the caller's transaction. SQLite has one writer either way, and the writes
+//! were never the expensive half.
+//!
 //! Deletions are handled by comparing what the walk saw against what the index
 //! holds, so a file removed while CtxC was not running still disappears.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use ctxc_context::walk::{self, WalkOptions};
+use ctxc_context::walk::{self, WalkEntry, WalkOptions};
 use ctxc_core::{id, Timestamp};
 use ctxc_graph::model::{FileFingerprint, FileIntelligence};
 use ctxc_graph::DependencyGraph;
@@ -28,6 +35,13 @@ use ctxc_store::{IndexCounts, IndexStore, StoredFingerprint};
 use ctxc_watcher::{Change, ChangeKind};
 
 use crate::error::{EngineError, Result};
+
+/// How many files one parallel batch prepares before they are written.
+///
+/// The prepared results hold each file's text, so an unbounded batch would
+/// hold the whole project in memory at once. A batch large enough to keep
+/// every core busy and small enough to bound that is the whole trade-off.
+const BATCH: usize = 256;
 
 /// Largest file whose text is kept for full-text search. Beyond this a file
 /// is still indexed and its symbols recorded; only its body stops being
@@ -178,20 +192,30 @@ impl<'a> Indexer<'a> {
         let stored = self.store.fingerprints(&root_key)?;
 
         let mut seen: HashSet<&str> = HashSet::with_capacity(found.entries.len());
-
         for entry in &found.entries {
             seen.insert(entry.path.as_str());
-            self.index_one(
-                &root_key,
-                &entry.path,
-                &entry.absolute,
-                entry.size,
-                entry.mtime_ms,
-                &known,
-                Some(&stored),
-                options.force,
-                &mut report,
-            )?;
+        }
+
+        // Prepare a batch across every core, then write it here. `map_init`
+        // hands each worker its own parser registry, which is what tree-sitter
+        // requires: cheap to reuse, not safe to share.
+        for batch in found.entries.chunks(BATCH) {
+            let prepared: Vec<Result<Prepared>> = batch
+                .par_iter()
+                .map_init(ParserRegistry::new, |parsers, entry| {
+                    prepare(
+                        parsers,
+                        entry,
+                        stored.get(&entry.path),
+                        &known,
+                        options.force,
+                    )
+                })
+                .collect();
+
+            for (entry, outcome) in batch.iter().zip(prepared) {
+                self.write_prepared(&root_key, entry, outcome?, &mut report)?;
+            }
         }
 
         // The same map answers "what did the index hold that the walk did not
@@ -216,125 +240,104 @@ impl<'a> Indexer<'a> {
         Ok(report)
     }
 
-    /// Index one file, doing the least work its state allows.
+    /// Write what [`prepare`] decided about one file.
     ///
-    /// Three tiers, cheapest first: unchanged metadata means skip without
-    /// reading; unchanged content means refresh the metadata without parsing;
-    /// anything else is parsed and replaced.
+    /// Everything here touches the database and nothing here is expensive, so
+    /// it runs on one thread inside the caller's transaction.
+    fn write_prepared(
+        &mut self,
+        root_key: &str,
+        entry: &WalkEntry,
+        prepared: Prepared,
+        report: &mut IndexReport,
+    ) -> Result<()> {
+        let relative = entry.path.as_str();
+
+        match prepared {
+            Prepared::Vanished => Ok(()),
+
+            Prepared::Unchanged => {
+                report.unchanged += 1;
+                Ok(())
+            }
+
+            Prepared::Touched {
+                fingerprint,
+                language,
+                indexed_at,
+            } => {
+                self.store.upsert_file(
+                    root_key,
+                    relative,
+                    language.map(Language::as_str),
+                    &fingerprint,
+                    indexed_at,
+                )?;
+                report.unchanged += 1;
+                Ok(())
+            }
+
+            Prepared::Parsed {
+                fingerprint,
+                language,
+                intelligence,
+                searchable,
+                unparsed,
+            } => {
+                if unparsed {
+                    report.unparsed += 1;
+                }
+
+                let id = self.store.upsert_file(
+                    root_key,
+                    relative,
+                    language.map(Language::as_str),
+                    &fingerprint,
+                    Timestamp::now(),
+                )?;
+                self.store.replace_intelligence(id, &intelligence)?;
+
+                // Text is made searchable whether or not CtxC can parse it: a
+                // README answers as many questions as a source file does.
+                if let Some(text) = &searchable {
+                    self.store.index_content(id, relative, text)?;
+
+                    if let Some(embedder) = self.embedder {
+                        if embedder.embed_file(relative, text, &fingerprint.content_hash)? {
+                            report.embedded += 1;
+                        }
+                    }
+                }
+
+                report.indexed += 1;
+                report.symbols += intelligence.symbols.len() as u64;
+                report.relationships += intelligence.relationships.len() as u64;
+                Ok(())
+            }
+        }
+    }
+
+    /// Index one file named by a change, reading its stored state as it goes.
     ///
-    /// `fingerprints` is the whole root's stored state when a full pass
-    /// preloaded it; a targeted update passes `None` and asks for the one row
-    /// it needs.
-    #[allow(clippy::too_many_arguments)]
+    /// The targeted path through the same decision: one file, one fingerprint
+    /// lookup, no batch to prepare.
     fn index_one(
         &mut self,
         root_key: &str,
-        relative: &str,
-        absolute: &Path,
-        size: u64,
-        mtime_ms: i64,
+        entry: &WalkEntry,
         known: &HashSet<&str>,
-        fingerprints: Option<&HashMap<String, StoredFingerprint>>,
-        force: bool,
         report: &mut IndexReport,
     ) -> Result<()> {
-        let stored = match fingerprints {
-            Some(fingerprints) => fingerprints.get(relative).cloned(),
-            None => self
-                .store
-                .file(root_key, relative)?
-                .map(|file| StoredFingerprint {
-                    fingerprint: file.fingerprint,
-                    indexed_at: file.indexed_at,
-                }),
-        };
+        let stored = self
+            .store
+            .file(root_key, &entry.path)?
+            .map(|file| StoredFingerprint {
+                fingerprint: file.fingerprint,
+                indexed_at: file.indexed_at,
+            });
 
-        // Cheap check first: size and mtime unchanged means untouched.
-        if !force {
-            if let Some(stored) = &stored {
-                if stored.fingerprint.size == size && stored.fingerprint.mtime_ms == mtime_ms {
-                    report.unchanged += 1;
-                    return Ok(());
-                }
-            }
-        }
-
-        let bytes = match std::fs::read(absolute) {
-            Ok(bytes) => bytes,
-            // A file that vanished between being noticed and being read is
-            // simply not indexed; its deletion event will follow.
-            Err(err) => {
-                tracing::debug!(path = %relative, error = %err, "skipping unreadable file");
-                return Ok(());
-            }
-        };
-
-        let fingerprint = FileFingerprint {
-            size,
-            mtime_ms,
-            content_hash: id::content_hash(&bytes),
-        };
-        let language = Language::from_path(Path::new(relative));
-
-        // The bytes may be identical even when the mtime moved — editors and
-        // checkouts touch files constantly. Refresh the metadata so the cheap
-        // check works next time, but do not re-parse.
-        if !force {
-            if let Some(stored) = &stored {
-                if stored.fingerprint.content_matches(&fingerprint) {
-                    self.store.upsert_file(
-                        root_key,
-                        relative,
-                        language.map(Language::as_str),
-                        &fingerprint,
-                        stored.indexed_at,
-                    )?;
-                    report.unchanged += 1;
-                    return Ok(());
-                }
-            }
-        }
-
-        let text = std::str::from_utf8(&bytes).ok();
-        let intelligence = match (language, text) {
-            (Some(language), Some(source)) => {
-                let mut parsed = self.parsers.parse(language, source)?;
-                resolve_imports(language, relative, &mut parsed, known);
-                parsed
-            }
-            // Files CtxC cannot parse are still recorded: the index is the list
-            // of what a project contains, not only of what it can read.
-            _ => {
-                report.unparsed += 1;
-                FileIntelligence::default()
-            }
-        };
-
-        let id = self.store.upsert_file(
-            root_key,
-            relative,
-            language.map(Language::as_str),
-            &fingerprint,
-            Timestamp::now(),
-        )?;
-        self.store.replace_intelligence(id, &intelligence)?;
-
-        // Text is made searchable whether or not CtxC can parse it: a README
-        // answers as many questions as a source file does.
-        if let Some(text) = text.filter(|text| text.len() <= MAX_SEARCHABLE_BYTES) {
-            self.store.index_content(id, relative, text)?;
-
-            if let Some(embedder) = self.embedder {
-                if embedder.embed_file(relative, text, &fingerprint.content_hash)? {
-                    report.embedded += 1;
-                }
-            }
-        }
-
-        report.indexed += 1;
-        report.symbols += intelligence.symbols.len() as u64;
-        report.relationships += intelligence.relationships.len() as u64;
-        Ok(())
+        let prepared = prepare(&mut self.parsers, entry, stored.as_ref(), known, false)?;
+        self.write_prepared(root_key, entry, prepared, report)
     }
 
     /// Apply a settled batch of filesystem changes.
@@ -409,24 +412,126 @@ impl<'a> Indexer<'a> {
             return Ok(());
         }
 
+        let entry = WalkEntry {
+            path: relative.to_owned(),
+            size: metadata.len(),
+            mtime_ms: mtime_ms(&metadata),
+            absolute,
+        };
+
         let mut pass = IndexReport::empty(root);
-        self.index_one(
-            root_key,
-            relative,
-            &absolute,
-            metadata.len(),
-            mtime_ms(&metadata),
-            known,
-            None,
-            false,
-            &mut pass,
-        )?;
+        self.index_one(root_key, &entry, known, &mut pass)?;
 
         report.indexed += pass.indexed;
         report.unchanged += pass.unchanged;
         report.symbols += pass.symbols;
         Ok(())
     }
+}
+
+/// What preparing one file decided, before anything is written.
+#[derive(Debug)]
+enum Prepared {
+    /// Size and mtime both match: the file has not been touched.
+    Unchanged,
+    /// The bytes match but the metadata moved — editors and checkouts touch
+    /// files constantly. Refresh the fingerprint so the cheap check works next
+    /// time, but do not re-parse.
+    Touched {
+        fingerprint: FileFingerprint,
+        language: Option<Language>,
+        indexed_at: Timestamp,
+    },
+    /// New content: everything derived from this file has to be replaced.
+    Parsed {
+        fingerprint: FileFingerprint,
+        language: Option<Language>,
+        intelligence: FileIntelligence,
+        /// The text to make searchable, when it is text and small enough.
+        searchable: Option<String>,
+        /// True when CtxC has no parser for this file, so it is recorded
+        /// without symbols.
+        unparsed: bool,
+    },
+    /// The file went away between being walked and being read.
+    Vanished,
+}
+
+/// Decide what one file needs, without touching the database.
+///
+/// This is the expensive half of an index pass — a read, a hash, a parse and
+/// import resolution — and it holds no shared state, which is what lets a full
+/// pass run it across every core at once.
+fn prepare(
+    parsers: &mut ParserRegistry,
+    entry: &WalkEntry,
+    stored: Option<&StoredFingerprint>,
+    known: &HashSet<&str>,
+    force: bool,
+) -> Result<Prepared> {
+    let relative = entry.path.as_str();
+
+    // Cheap check first: size and mtime unchanged means untouched.
+    if !force {
+        if let Some(stored) = stored {
+            if stored.fingerprint.size == entry.size
+                && stored.fingerprint.mtime_ms == entry.mtime_ms
+            {
+                return Ok(Prepared::Unchanged);
+            }
+        }
+    }
+
+    let bytes = match std::fs::read(&entry.absolute) {
+        Ok(bytes) => bytes,
+        // A file that vanished between being noticed and being read is simply
+        // not indexed; its deletion event will follow.
+        Err(err) => {
+            tracing::debug!(path = %relative, error = %err, "skipping unreadable file");
+            return Ok(Prepared::Vanished);
+        }
+    };
+
+    let fingerprint = FileFingerprint {
+        size: entry.size,
+        mtime_ms: entry.mtime_ms,
+        content_hash: id::content_hash(&bytes),
+    };
+    let language = Language::from_path(Path::new(relative));
+
+    if !force {
+        if let Some(stored) = stored {
+            if stored.fingerprint.content_matches(&fingerprint) {
+                return Ok(Prepared::Touched {
+                    fingerprint,
+                    language,
+                    indexed_at: stored.indexed_at,
+                });
+            }
+        }
+    }
+
+    let text = std::str::from_utf8(&bytes).ok();
+    let (intelligence, unparsed) = match (language, text) {
+        (Some(language), Some(source)) => {
+            let mut parsed = parsers.parse(language, source)?;
+            resolve_imports(language, relative, &mut parsed, known);
+            (parsed, false)
+        }
+        // Files CtxC cannot parse are still recorded: the index is the list of
+        // what a project contains, not only of what it can read.
+        _ => (FileIntelligence::default(), true),
+    };
+
+    Ok(Prepared::Parsed {
+        searchable: text
+            .filter(|text| text.len() <= MAX_SEARCHABLE_BYTES)
+            .map(str::to_owned),
+        fingerprint,
+        language,
+        intelligence,
+        unparsed,
+    })
 }
 
 /// Modification time in epoch milliseconds, or zero when unavailable.
