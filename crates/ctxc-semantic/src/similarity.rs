@@ -1,12 +1,118 @@
 //! Finding what is close, and dropping what is redundant.
 //!
-//! Both operations here are brute force. A repository has thousands of files,
-//! not millions of them, and comparing a query against ten thousand 256-float
-//! vectors is a few milliseconds — cheaper than the index lookup that produced
-//! the candidates. An approximate index would add a structure to build,
-//! invalidate and get wrong, in exchange for time nobody is waiting on.
+//! Searching is brute force. A repository has thousands of files, not millions
+//! of them, and comparing a query against ten thousand 256-float vectors is a
+//! few milliseconds — cheaper than the index lookup that produced the
+//! candidates. An approximate index would add a structure to build, invalidate
+//! and get wrong, in exchange for time nobody is waiting on.
+//!
+//! Deduplication is the one that grows: every fragment against every fragment
+//! kept so far, which is quadratic exactly when nothing is a duplicate — the
+//! normal case for source code. So each comparison stops as soon as the pair
+//! provably cannot reach the threshold, which for two unrelated fragments is
+//! after the first eighth of the vector.
+//!
+//! The bound that decides this only ever over-estimates, deliberately. A
+//! random-hyperplane sketch would reject pairs faster and miss real duplicates
+//! a few percent of the time, which would make what CtxC decides depend on
+//! which sketch it happened to draw. This changes how fast the answer is
+//! reached and never what it is.
 
 use crate::vector::Embedding;
+
+/// How many pieces a vector is cut into when comparing it.
+///
+/// Each piece is a chance to stop early. Eight over 256 dimensions means a
+/// pair that cannot possibly reach the threshold is usually rejected after the
+/// first 32 multiplies instead of all 256.
+const PIECES: usize = 8;
+
+/// Below this many fragments, the plain scan is already fast and exactly
+/// right, and building the bounds would cost more than they save.
+const PRUNE_FROM: usize = 64;
+
+/// Per-suffix magnitudes of a vector, for stopping a comparison early.
+///
+/// `suffix[i]` is the magnitude of everything from piece `i` onwards. Part way
+/// through a dot product, Cauchy-Schwarz says the pieces not yet looked at can
+/// contribute at most the product of the two vectors' remaining magnitudes. So
+/// "what we have so far, plus that product" is an upper bound on the final
+/// answer, and once it drops below the threshold the rest of the comparison
+/// cannot change the verdict.
+///
+/// The bound only ever over-estimates, which is what makes this an
+/// optimization rather than a different answer: no pair that would have been
+/// called a duplicate is ever rejected by it.
+#[derive(Debug, Clone)]
+struct Bounds {
+    /// One longer than `PIECES`, so the last entry is zero: nothing remains
+    /// after the final piece, and the bound there is the exact answer.
+    suffix: [f32; PIECES + 1],
+    /// Dimensions per piece, so both sides walk the same boundaries.
+    piece: usize,
+}
+
+impl Bounds {
+    fn of(embedding: &Embedding) -> Bounds {
+        let values = embedding.values();
+        let mut suffix = [0.0f32; PIECES + 1];
+        if values.is_empty() {
+            return Bounds { suffix, piece: 1 };
+        }
+
+        // Ceiling division: the last piece takes the remainder, so no dimension
+        // falls outside the bound. One that did would make the bound an
+        // under-estimate, and the prune wrong.
+        let piece = values.len().div_ceil(PIECES);
+        for index in (0..PIECES).rev() {
+            let from = (index * piece).min(values.len());
+            let to = ((index + 1) * piece).min(values.len());
+            let squared: f32 = values[from..to].iter().map(|value| value * value).sum();
+            suffix[index] = (squared + suffix[index + 1] * suffix[index + 1]).sqrt();
+        }
+        Bounds { suffix, piece }
+    }
+}
+
+/// Whether two vectors are at least `threshold` similar, stopping as soon as
+/// the answer cannot be yes.
+///
+/// Equivalent to `left.similarity(right) >= threshold`, and it agrees with it
+/// exactly; the bound decides when to stop, never what to conclude.
+fn at_least(
+    left: &Embedding,
+    right: &Embedding,
+    bounds: (&Bounds, &Bounds),
+    threshold: f32,
+) -> bool {
+    let (a, b) = (left.values(), right.values());
+    if a.len() != b.len() {
+        // Vectors of different lengths score zero, exactly as `similarity`
+        // says: two providers' vectors are not comparable.
+        return 0.0 >= threshold;
+    }
+
+    let piece = bounds.0.piece;
+    let mut total = 0.0f32;
+
+    for index in 0..PIECES {
+        let from = (index * piece).min(a.len());
+        let to = ((index + 1) * piece).min(a.len());
+        total += a[from..to]
+            .iter()
+            .zip(&b[from..to])
+            .map(|(left, right)| left * right)
+            .sum::<f32>();
+
+        // The most the pieces not yet looked at could add.
+        let remaining = bounds.0.suffix[index + 1] * bounds.1.suffix[index + 1];
+        if total + remaining < threshold {
+            return false;
+        }
+    }
+
+    total.clamp(-1.0, 1.0) >= threshold
+}
 
 /// One scored candidate.
 #[derive(Debug, Clone, PartialEq)]
@@ -66,6 +172,11 @@ pub enum Verdict {
 /// everything *kept*, not everything seen, so a chain of slightly-different
 /// items does not drift away from where it started.
 pub fn collapse_redundant(embeddings: &[Embedding], threshold: f32) -> Vec<Verdict> {
+    // The bounds only earn their keep once there are enough fragments for the
+    // quadratic term to matter. Below that the plain scan is the whole job.
+    let bounds: Option<Vec<Bounds>> =
+        (embeddings.len() >= PRUNE_FROM).then(|| embeddings.iter().map(Bounds::of).collect());
+
     let mut verdicts = Vec::with_capacity(embeddings.len());
     let mut kept: Vec<usize> = Vec::new();
 
@@ -78,9 +189,15 @@ pub fn collapse_redundant(embeddings: &[Embedding], threshold: f32) -> Vec<Verdi
             continue;
         }
 
-        let duplicate = kept
-            .iter()
-            .find(|&&other| embeddings[other].similarity(embedding) >= threshold);
+        let duplicate = kept.iter().find(|&&other| match &bounds {
+            Some(bounds) => at_least(
+                &embeddings[other],
+                embedding,
+                (&bounds[other], &bounds[index]),
+                threshold,
+            ),
+            None => embeddings[other].similarity(embedding) >= threshold,
+        });
 
         match duplicate {
             Some(&other) => verdicts.push(Verdict::Redundant {
@@ -279,6 +396,95 @@ mod tests {
     #[test]
     fn collapsing_nothing_returns_nothing() {
         assert!(collapse_redundant(&[], 0.9).is_empty());
+    }
+
+    /// The early exit decides when to stop, never what to conclude. Every pair
+    /// it rules on must match what measuring the whole vector would have said.
+    #[test]
+    fn stopping_early_never_changes_the_answer() {
+        let embedder = HashedEmbedder::default();
+        let embeddings: Vec<Embedding> = (0..150)
+            .map(|index| {
+                embedder.embed(&format!(
+                    "worker {} handled request {index} in {} ms",
+                    index % 5,
+                    index % 17
+                ))
+            })
+            .collect();
+        let bounds: Vec<Bounds> = embeddings.iter().map(Bounds::of).collect();
+
+        for threshold in [0.0, 0.3, 0.7, 0.92, 0.99] {
+            for left in 0..embeddings.len() {
+                for right in 0..embeddings.len() {
+                    let exact = embeddings[left].similarity(&embeddings[right]) >= threshold;
+                    let bounded = at_least(
+                        &embeddings[left],
+                        &embeddings[right],
+                        (&bounds[left], &bounds[right]),
+                        threshold,
+                    );
+                    assert_eq!(
+                        bounded, exact,
+                        "pair ({left}, {right}) at threshold {threshold}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Pruning is an optimization, so the verdicts either side of the size at
+    /// which it switches on must be the same verdicts.
+    #[test]
+    fn pruning_reaches_the_same_verdicts_as_the_exact_scan() {
+        let embedder = HashedEmbedder::default();
+        let mut texts: Vec<String> = Vec::new();
+        for index in 0..PRUNE_FROM * 2 {
+            // A third of these repeat an earlier line with a different
+            // timestamp, so there is something real for both paths to find.
+            if index % 3 == 0 {
+                texts.push(format!(
+                    "ERROR 12:00:{index:02} connection to database failed"
+                ));
+            } else {
+                texts.push(format!(
+                    "INFO  12:00:{index:02} handled request {index} for user {index}"
+                ));
+            }
+        }
+        let embeddings: Vec<Embedding> = texts.iter().map(|text| embedder.embed(text)).collect();
+
+        for threshold in [0.5, 0.8, 0.9, 0.95] {
+            let pruned = collapse_redundant(&embeddings, threshold);
+
+            // The same input, one item short of the size that turns pruning on.
+            let mut exact = Vec::with_capacity(embeddings.len());
+            let mut kept: Vec<usize> = Vec::new();
+            for (index, embedding) in embeddings.iter().enumerate() {
+                if embedding.is_empty() {
+                    exact.push(Verdict::Keep);
+                    kept.push(index);
+                    continue;
+                }
+                match kept
+                    .iter()
+                    .find(|&&other| embeddings[other].similarity(embedding) >= threshold)
+                {
+                    Some(&other) => exact.push(Verdict::Redundant {
+                        duplicate_of: other,
+                    }),
+                    None => {
+                        exact.push(Verdict::Keep);
+                        kept.push(index);
+                    }
+                }
+            }
+
+            assert_eq!(
+                pruned, exact,
+                "pruning changed what was decided at threshold {threshold}"
+            );
+        }
     }
 
     #[test]
