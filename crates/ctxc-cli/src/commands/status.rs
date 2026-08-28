@@ -182,6 +182,12 @@ impl Render for StatusReport {
 }
 
 pub fn run<W: Write>(app: &App, printer: &mut Printer<W>) -> Result<()> {
-    printer.emit(&StatusReport::collect(app)?)?;
+    let report = StatusReport::collect(app)?;
+    let empty = report.indexed_roots == 0;
+    printer.emit(&report)?;
+
+    if empty {
+        printer.hint(&["No project is indexed yet. Set one up with:", "  ctxc init"]);
+    }
     Ok(())
 }

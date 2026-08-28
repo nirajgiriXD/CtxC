@@ -63,6 +63,26 @@ impl<W: Write> Printer<W> {
         self.writer.flush()
     }
 
+    /// Say what to do next, on stderr.
+    ///
+    /// An empty result is not an error, but it is rarely where someone meant
+    /// to stop. The suggestion goes to stderr so that a piped stdout stays
+    /// exactly what it was, and only for human output, so a machine consumer
+    /// reads byte-identical documents either way.
+    ///
+    /// Best effort: a command's result must not depend on whether advice
+    /// about it could be printed.
+    pub fn hint<S: AsRef<str>>(&mut self, lines: &[S]) {
+        if self.format != OutputFormat::Human || lines.is_empty() {
+            return;
+        }
+        let mut stderr = io::stderr();
+        let _ = writeln!(stderr);
+        for line in lines {
+            let _ = writeln!(stderr, "{}", line.as_ref());
+        }
+    }
+
     /// Emit one result.
     pub fn emit<T: Render>(&mut self, value: &T) -> io::Result<()> {
         match self.format {

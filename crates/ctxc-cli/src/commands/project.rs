@@ -108,7 +108,7 @@ impl Render for ProjectList {
         if self.projects.is_empty() {
             return writeln!(
                 out,
-                "No projects registered. Add one with `ctxc project add <path>`."
+                "No projects registered. Register one with `ctxc init`."
             );
         }
 

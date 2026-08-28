@@ -82,6 +82,13 @@ pub fn run<W: Write>(app: &App, open_browser: bool, printer: &mut Printer<W>) ->
             bytes: 0,
             started_daemon: false,
         })?;
+        printer.hint(&[
+            "The web interface is built separately, then compiled in:",
+            "  cd crates/ctxc-dashboard/ui && npm ci && npm run build",
+            "  cargo build --release",
+            "",
+            "Until then, `ctxc status --metrics` reports the same numbers.",
+        ]);
         return Ok(());
     }
 

@@ -96,11 +96,20 @@ pub fn run<W: Write>(
     // match presented as a result reads as evidence.
     let found = embedder.nearest(query, limit, 0.15)?;
 
+    let empty = found.files.is_empty();
     printer.emit(&SimilarReport {
         query: query.to_owned(),
         root: key,
         found,
     })?;
+
+    if empty {
+        printer.hint(&[
+            "Similarity found nothing. Try:".to_string(),
+            format!("  ctxc find {query:?}                 search the index instead"),
+            format!("  ctxc find {query:?} --similar --limit 50"),
+        ]);
+    }
     Ok(())
 }
 

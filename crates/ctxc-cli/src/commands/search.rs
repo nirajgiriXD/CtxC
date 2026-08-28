@@ -150,7 +150,11 @@ pub fn search<W: Write>(
     if store.counts(&key)?.files == 0 {
         return Err(
             CliError::new(format!("{} has not been indexed", root.display()))
-                .with_hint("run `ctxc project index` first")
+                .with_hint(format!(
+                    "run `ctxc project index {}`, or `ctxc init {}` to set it up",
+                    root.display(),
+                    root.display()
+                ))
                 .into(),
         );
     }
@@ -187,7 +191,19 @@ pub fn search<W: Write>(
     );
 
     if !options.compile {
+        let empty = retrieval.files.is_empty();
         printer.emit(&retrieval)?;
+        if empty {
+            printer.hint(&[
+                "Nothing matched. Try:".to_string(),
+                format!("  ctxc find {query:?} --similar        rank by similarity instead"),
+                format!("  ctxc find {query:?} --limit 50       look further down the ranking"),
+                format!(
+                    "  ctxc project index {} --force   re-read the code",
+                    root.display()
+                ),
+            ]);
+        }
         return Ok(());
     }
 

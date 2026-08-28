@@ -3471,3 +3471,54 @@ fn init_can_skip_the_work_it_is_told_to_skip() {
     assert!(json["index"].is_null(), "nothing should have been indexed");
     assert_eq!(json["agents"].as_array().unwrap().len(), 0);
 }
+
+#[test]
+fn an_empty_search_says_what_to_try_next() {
+    let sandbox = Sandbox::new("hint-search");
+    let project = sample_project(&sandbox);
+    assert_success(&sandbox.run(&["project", "index", path_str(&project)]));
+
+    let output = sandbox.run(&["find", "zzzznothinghere", "--path", path_str(&project)]);
+    assert_success(&output);
+
+    let advice = stderr(&output);
+    assert!(advice.contains("--similar"), "{advice}");
+    assert!(advice.contains("--limit"), "{advice}");
+}
+
+/// Advice is for people. A machine consumer must read the same bytes it always
+/// did, with nothing extra on either stream.
+#[test]
+fn hints_never_reach_machine_output() {
+    let sandbox = Sandbox::new("hint-json");
+    let project = sample_project(&sandbox);
+    assert_success(&sandbox.run(&["project", "index", path_str(&project)]));
+
+    let output = sandbox.run(&[
+        "find",
+        "zzzznothinghere",
+        "--path",
+        path_str(&project),
+        "--format",
+        "json",
+    ]);
+    assert_success(&output);
+
+    let json: serde_json::Value = serde_json::from_str(&stdout(&output)).expect("valid json");
+    assert_eq!(json["files"].as_array().unwrap().len(), 0);
+    assert!(
+        !stderr(&output).contains("--similar"),
+        "stderr carried a hint into a machine-readable run: {}",
+        stderr(&output)
+    );
+}
+
+#[test]
+fn status_with_nothing_indexed_points_at_init() {
+    let sandbox = Sandbox::new("hint-status");
+    let output = sandbox.run(&["status"]);
+    assert_success(&output);
+
+    let advice = stderr(&output);
+    assert!(advice.contains("ctxc init"), "{advice}");
+}
