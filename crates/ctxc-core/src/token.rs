@@ -1,8 +1,17 @@
 //! Token budgets and token counting.
 //!
-//! Exact tokenization is model specific and belongs in adapters; what lives
-//! here is the [`Tokenizer`] trait every layer talks to, plus the deterministic
-//! [`HeuristicTokenizer`] that makes CtxC usable with no model and no network.
+//! What lives here is the [`Tokenizer`] trait every layer talks to, plus the
+//! deterministic [`HeuristicTokenizer`] that makes CtxC usable with no model
+//! and no network. That estimator is the default, and always will be: it is
+//! what lets `cargo install ctxc` produce something that works offline.
+//!
+//! Exact tokenization is model specific, and a vocabulary is megabytes. So the
+//! `cl100k` encoder — what GPT-4 and its relatives count with — is behind a
+//! Cargo feature of the same name. A build without it does not offer the name,
+//! and says so rather than quietly estimating instead: a budget that claims to
+//! be exact and is not is worse than one that admits it is a guess.
+
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
@@ -111,6 +120,80 @@ impl Tokenizer for HeuristicTokenizer {
             length = 1;
         }
         tokens.saturating_add(run.tokens(length))
+    }
+}
+
+/// The tokenizer a configured name selects, or `None` when this build has no
+/// such tokenizer.
+///
+/// Names are matched exactly. Guessing at a near miss would silently budget
+/// against something other than what was asked for.
+pub fn named(name: &str) -> Option<Arc<dyn Tokenizer>> {
+    match name {
+        "heuristic" => Some(Arc::new(HeuristicTokenizer::new())),
+        #[cfg(feature = "cl100k")]
+        "cl100k" => Some(Arc::new(Cl100kTokenizer::new())),
+        _ => None,
+    }
+}
+
+/// The tokenizer names this build understands, for an error message that can
+/// say what the alternatives are.
+pub fn available() -> Vec<&'static str> {
+    let mut names = vec!["heuristic"];
+    if cfg!(feature = "cl100k") {
+        names.push("cl100k");
+    }
+    names
+}
+
+/// The exact byte-pair encoder GPT-4 and its relatives use.
+///
+/// Counts are the real thing, so [`Tokenizer::is_estimate`] finally returns
+/// false and a budget can be filled to its edge instead of being left a
+/// safety margin. The vocabulary is compiled into the binary — this adds
+/// megabytes to the build and no network call at any point.
+#[cfg(feature = "cl100k")]
+pub struct Cl100kTokenizer {
+    encoder: &'static tiktoken_rs::CoreBPE,
+}
+
+#[cfg(feature = "cl100k")]
+impl Cl100kTokenizer {
+    pub fn new() -> Self {
+        // Built once: assembling the vocabulary is slow, and the engine counts
+        // the same text several times while attributing savings to stages.
+        static ENCODER: std::sync::OnceLock<tiktoken_rs::CoreBPE> = std::sync::OnceLock::new();
+        Cl100kTokenizer {
+            encoder: ENCODER.get_or_init(|| {
+                tiktoken_rs::cl100k_base().expect("the cl100k vocabulary is compiled in")
+            }),
+        }
+    }
+}
+
+#[cfg(feature = "cl100k")]
+impl Default for Cl100kTokenizer {
+    fn default() -> Self {
+        Cl100kTokenizer::new()
+    }
+}
+
+#[cfg(feature = "cl100k")]
+impl Tokenizer for Cl100kTokenizer {
+    fn name(&self) -> &'static str {
+        "cl100k"
+    }
+
+    fn count(&self, text: &str) -> u32 {
+        self.encoder
+            .encode_ordinary(text)
+            .len()
+            .min(u32::MAX as usize) as u32
+    }
+
+    fn is_estimate(&self) -> bool {
+        false
     }
 }
 
@@ -248,5 +331,32 @@ mod tests {
         let tokenizer = HeuristicTokenizer::new();
         assert!(tokenizer.is_estimate());
         assert_eq!(tokenizer.name(), "heuristic");
+    }
+
+    #[test]
+    fn the_estimator_is_always_available_and_is_the_only_name_by_default() {
+        assert!(named("heuristic").is_some());
+        assert!(named("no-such-tokenizer").is_none());
+        assert!(available().contains(&"heuristic"));
+
+        // Selecting a tokenizer this build does not have must fail rather than
+        // hand back an estimate wearing the exact one's name.
+        assert_eq!(named("cl100k").is_some(), cfg!(feature = "cl100k"));
+        assert_eq!(available().contains(&"cl100k"), cfg!(feature = "cl100k"));
+    }
+
+    #[cfg(feature = "cl100k")]
+    #[test]
+    fn the_exact_tokenizer_is_exact() {
+        let tokenizer = Cl100kTokenizer::new();
+        assert!(!tokenizer.is_estimate(), "this one is not a guess");
+        assert_eq!(tokenizer.name(), "cl100k");
+
+        // The published cl100k count for this sentence.
+        assert_eq!(
+            tokenizer.count("The quick brown fox jumps over the lazy dog."),
+            10
+        );
+        assert_eq!(tokenizer.count(""), 0);
     }
 }

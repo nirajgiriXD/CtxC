@@ -12,6 +12,13 @@ authors.workspace = true
 name = "ctxc"
 path = "src/main.rs"
 
+[features]
+default = []
+# Pass the exact GPT-4 tokenizer through to ctxc-core, for
+# `budget.tokenizer = "cl100k"`. Off by default: it compiles a large
+# vocabulary into the binary.
+cl100k = ["ctxc-core/cl100k"]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true

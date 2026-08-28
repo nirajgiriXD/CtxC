@@ -123,12 +123,14 @@ impl Engine {
         }
     }
 
-    /// Build an engine from configuration, using the built-in estimator.
+    /// Build an engine from configuration, with the tokenizer it selects.
+    ///
+    /// That is the estimator unless `budget.tokenizer` names another one this
+    /// build carries. Everything downstream reports the tokenizer by name and
+    /// whether it estimates, so a number can always be traced to how it was
+    /// counted.
     pub fn from_config(config: &Config) -> Self {
-        Engine::new(
-            Arc::new(ctxc_core::HeuristicTokenizer::new()),
-            EngineOptions::from_config(config),
-        )
+        Engine::new(config.tokenizer(), EngineOptions::from_config(config))
     }
 
     /// Replace the router, for tests and for callers assembling their own

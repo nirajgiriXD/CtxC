@@ -15,7 +15,7 @@ use std::path::Path;
 use anyhow::{Context as _, Result};
 use serde::Serialize;
 
-use ctxc_core::{ContentType, Context, ContextId, ContextSource, HeuristicTokenizer, TokenBudget};
+use ctxc_core::{ContentType, Context, ContextId, ContextSource, TokenBudget};
 use ctxc_engine::{index, Engine, ProjectEmbedder};
 use ctxc_metrics::{MetricEvent, Operation};
 use ctxc_retrieval::{Query, Retrieval, RetrievalOptions, Retriever};
@@ -221,11 +221,14 @@ fn compile_selection<W: Write>(
     printer: &mut Printer<W>,
 ) -> Result<()> {
     let budget = TokenBudget::new(options.budget.unwrap_or(app.config.budget.default));
-    let tokenizer = HeuristicTokenizer::new();
+    // The same tokenizer the engine will compile with: selecting files against
+    // one count and then compiling against another would fill the budget by
+    // one measure and overflow it by the other.
+    let tokenizer = app.config.tokenizer();
 
     // Selection reads content through the index rather than the filesystem, so
     // what gets compiled is exactly what was searched.
-    let selected = retrieval.select_within_budget(budget, &tokenizer, |path| {
+    let selected = retrieval.select_within_budget(budget, tokenizer.as_ref(), |path| {
         store.file_content(key, path).ok().flatten()
     });
 

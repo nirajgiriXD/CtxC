@@ -96,6 +96,14 @@ pub struct StorageConfig {
 pub struct BudgetConfig {
     /// Token budget applied when a caller does not supply one.
     pub default: u32,
+    /// Which tokenizer counts against that budget.
+    ///
+    /// `"heuristic"` is the estimator CtxC ships: no vocabulary, no download,
+    /// and honest about being approximate. `"cl100k"` is the exact byte-pair
+    /// encoder GPT-4 and friends use, available only when this build was
+    /// compiled with the `cl100k` feature — asking for it otherwise is a
+    /// configuration error rather than a silent fall back to the estimate.
+    pub tokenizer: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -185,7 +193,10 @@ impl Default for Config {
             storage: StorageConfig {
                 path: "auto".into(),
             },
-            budget: BudgetConfig { default: 32_000 },
+            budget: BudgetConfig {
+                default: 32_000,
+                tokenizer: "heuristic".into(),
+            },
             daemon: DaemonConfig {
                 enabled: true,
                 auto_start: true,
@@ -314,6 +325,8 @@ pub struct PartialStorage {
 pub struct PartialBudget {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tokenizer: Option<String>,
 }
 
 #[derive(Debug, Default, Clone, Deserialize, Serialize)]
@@ -548,6 +561,7 @@ impl PartialConfig {
             graph.enabled,
             storage.path,
             budget.default,
+            budget.tokenizer,
             daemon.enabled,
             daemon.auto_start,
             daemon.bind,
@@ -605,6 +619,7 @@ impl PartialConfig {
             graph.enabled,
             storage.path,
             budget.default,
+            budget.tokenizer,
             daemon.enabled,
             daemon.auto_start,
             daemon.bind,
@@ -681,6 +696,7 @@ impl PartialConfig {
         partial.graph.enabled = bool_var(env, "GRAPH_ENABLED")?;
         partial.storage.path = string_var(env, "STORAGE_PATH");
         partial.budget.default = parse_var(env, "BUDGET_DEFAULT")?;
+        partial.budget.tokenizer = string_var(env, "BUDGET_TOKENIZER");
         partial.daemon.enabled = bool_var(env, "DAEMON_ENABLED")?;
         partial.daemon.auto_start = bool_var(env, "DAEMON_AUTO_START")?;
         partial.daemon.bind = string_var(env, "DAEMON_BIND");
@@ -847,6 +863,9 @@ impl Config {
         if let Some(default) = layer.budget.default {
             self.budget.default = default;
         }
+        if let Some(tokenizer) = layer.budget.tokenizer {
+            self.budget.tokenizer = tokenizer;
+        }
         if let Some(enabled) = layer.daemon.enabled {
             self.daemon.enabled = enabled;
         }
@@ -933,6 +952,16 @@ impl Config {
                 reason: "must be greater than zero".into(),
             });
         }
+        if crate::token::named(&self.budget.tokenizer).is_none() {
+            return Err(Error::ConfigValue {
+                key: "budget.tokenizer".into(),
+                reason: format!(
+                    "unknown tokenizer {:?}; this build offers {}",
+                    self.budget.tokenizer,
+                    crate::token::available().join(", ")
+                ),
+            });
+        }
         for (key, value) in [
             ("ranking.keyword", self.ranking.keyword),
             ("ranking.semantic", self.ranking.semantic),
@@ -1013,6 +1042,15 @@ impl Config {
         } else {
             PathBuf::from(&self.storage.path)
         }
+    }
+
+    /// The tokenizer this configuration selects.
+    ///
+    /// Validation already refused an unknown name, so a configuration that
+    /// loaded has a tokenizer that exists in this build.
+    pub fn tokenizer(&self) -> std::sync::Arc<dyn crate::Tokenizer> {
+        crate::token::named(&self.budget.tokenizer)
+            .unwrap_or_else(|| std::sync::Arc::new(crate::HeuristicTokenizer::new()))
     }
 
     /// The default token budget as a typed value.
