@@ -22,6 +22,17 @@ pub struct StoredEmbedding {
     pub content_hash: String,
 }
 
+/// A cheap summary of every vector under a root.
+///
+/// Enough to tell whether a cached copy is still the truth, and cheap enough
+/// to ask before every search. `checksum` sums the write times, so replacing a
+/// vector moves it even though the count did not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct EmbeddingState {
+    pub count: u64,
+    pub checksum: i64,
+}
+
 /// Which vectors a caller can use.
 ///
 /// Both halves matter: the same provider at a different dimension count
@@ -69,6 +80,13 @@ pub trait EmbeddingStore {
 
     /// How many vectors this provider has under a root.
     fn embedding_count(&self, root: &str, provider: Provider<'_>) -> Result<u64>;
+
+    /// A summary of this provider's vectors under a root.
+    ///
+    /// One aggregate over an indexed column, so a caller holding a decoded
+    /// copy of these vectors can check it is still current for far less than
+    /// re-reading them would cost.
+    fn embedding_state(&self, root: &str, provider: Provider<'_>) -> Result<EmbeddingState>;
 }
 
 /// SQLite-backed [`EmbeddingStore`].
@@ -200,13 +218,26 @@ impl EmbeddingStore for SqliteEmbeddingStore<'_> {
     }
 
     fn embedding_count(&self, root: &str, provider: Provider<'_>) -> Result<u64> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM embeddings
-             WHERE root = ?1 AND provider = ?2 AND dimensions = ?3",
-            rusqlite::params![root, provider.name, provider.dimensions as i64],
-            |row| row.get(0),
-        )?;
-        Ok(count.max(0) as u64)
+        Ok(self.embedding_state(root, provider)?.count)
+    }
+
+    fn embedding_state(&self, root: &str, provider: Provider<'_>) -> Result<EmbeddingState> {
+        let state = self
+            .conn
+            .prepare_cached(
+                "SELECT COUNT(*), COALESCE(SUM(updated_at), 0) FROM embeddings
+                 WHERE root = ?1 AND provider = ?2 AND dimensions = ?3",
+            )?
+            .query_row(
+                rusqlite::params![root, provider.name, provider.dimensions as i64],
+                |row| {
+                    Ok(EmbeddingState {
+                        count: row.get::<_, i64>(0)?.max(0) as u64,
+                        checksum: row.get(1)?,
+                    })
+                },
+            )?;
+        Ok(state)
     }
 }
 

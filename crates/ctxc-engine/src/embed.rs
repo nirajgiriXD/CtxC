@@ -105,14 +105,18 @@ impl<'a> ProjectEmbedder<'a> {
     ///
     /// Brute force over the project's vectors. A repository has thousands of
     /// files, and comparing a query against all of them costs less than the
-    /// index lookup that would have narrowed them down.
+    /// index lookup that would have narrowed them down — and the vectors
+    /// themselves are decoded once and reused until the project changes.
     pub fn nearest(&self, text: &str, limit: usize, floor: f32) -> Result<Similar> {
         let query = self.embedder.embed(text);
-        let stored = self.store.embeddings(&self.root, self.provider())?;
+        // Decoded once per change to the project rather than once per query:
+        // the daemon answers search after search over vectors that did not
+        // move, and reading them again each time is the whole cost.
+        let stored = crate::vectors::load(self.store, &self.root, self.provider())?;
 
         let candidates = stored
-            .into_iter()
-            .map(|stored| (stored.path, stored.embedding));
+            .iter()
+            .map(|(path, embedding)| (path.clone(), embedding.clone()));
         let matches = ctxc_semantic::nearest(&query, candidates, limit, floor);
 
         Ok(Similar {

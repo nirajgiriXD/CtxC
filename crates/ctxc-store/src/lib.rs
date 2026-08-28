@@ -17,7 +17,9 @@ pub mod project_store;
 
 pub use context_store::{ContextStore, SqliteContextStore};
 pub use db::Database;
-pub use embedding_store::{EmbeddingStore, Provider, SqliteEmbeddingStore, StoredEmbedding};
+pub use embedding_store::{
+    EmbeddingState, EmbeddingStore, Provider, SqliteEmbeddingStore, StoredEmbedding,
+};
 pub use error::{Result, StoreError};
 pub use index_store::{IndexCounts, IndexStore, SqliteIndexStore, StoredFingerprint, SymbolHit};
 pub use memory_store::{Memory, MemoryStore, SqliteMemoryStore};

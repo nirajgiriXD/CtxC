@@ -17,6 +17,7 @@ pub mod engine;
 pub mod error;
 pub mod index;
 pub mod router;
+pub mod vectors;
 
 pub use analyze::Analysis;
 pub use compile::{Compilation, CompiledSection};
@@ -25,3 +26,4 @@ pub use engine::{Engine, EngineOptions};
 pub use error::{EngineError, Result};
 pub use index::{IndexOptions, IndexProgress, IndexReport, Indexer};
 pub use router::Router;
+pub use vectors::clear as clear_vector_cache;
