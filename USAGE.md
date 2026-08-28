@@ -4,12 +4,50 @@ Everything needed to install, configure, and operate CtxC.
 
 This file is the single source of truth for user-facing instructions.
 [README.md](README.md) explains what CtxC is and why it exists.
+[TROUBLESHOOTING.md](TROUBLESHOOTING.md) is what to do when something is wrong.
 [ARCHITECTURE.md](ARCHITECTURE.md) explains how it works internally.
+
+---
+
+## Cheat sheet
+
+Every command, one line each. Details are in the
+[command reference](#command-reference).
+
+| Command | What it does |
+|---------|--------------|
+| `ctxc init` | Set a project up: register, index, tell your agents about it |
+| `ctxc optimize <FILE>` | Shrink a file, and print the result |
+| `ctxc optimize -- <CMD>` | Run a command and shrink what it printed |
+| `ctxc optimize --dry-run <FILE>` | Say what shrinking would save, without doing it |
+| `ctxc find "<QUERY>"` | Find the code that answers a question |
+| `ctxc find "<QUERY>" --compile` | The same, assembled into one document inside a budget |
+| `ctxc find "<TEXT>" --similar` | Rank by embedding similarity instead of searching |
+| `ctxc find ctxc://context/<ID>` | Recover the original behind a reference |
+| `ctxc project add <PATH>` | Register a project |
+| `ctxc project list` | List registered projects |
+| `ctxc project index [PATH]` | Read a project's code into the index |
+| `ctxc project graph [PATH]` | Show how a project's files depend on each other |
+| `ctxc project remove <PROJECT>` | Forget a project. Its files are never touched |
+| `ctxc start --detach` | Run the daemon in the background |
+| `ctxc stop` | Stop the daemon and every other CtxC process |
+| `ctxc doctor` | Check this installation, and say how to fix what is wrong |
+| `ctxc status` | Show paths, database, and daemon state |
+| `ctxc status --metrics` | Show what CtxC has saved |
+| `ctxc config show` | Print the effective configuration |
+| `ctxc config agents install --detected` | Tell the coding agents here about CtxC |
+| `ctxc dashboard` | Open the local dashboard in a browser |
+| `ctxc update` | Update this CtxC |
+| `ctxc completions <SHELL>` | Print a tab-completion script |
+
+Global flags, on every command: `--format human|json|jsonl|quiet`,
+`--config <PATH>`, `--verbose`, `--debug`.
 
 ---
 
 ## Contents
 
+- [Cheat sheet](#cheat-sheet)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Building from source](#building-from-source)
@@ -17,6 +55,7 @@ This file is the single source of truth for user-facing instructions.
 - [Configuration](#configuration)
   - [Configuration files](#configuration-files)
   - [Configuration reference](#configuration-reference)
+  - [Exact token counts](#exact-token-counts)
   - [Environment variables](#environment-variables)
   - [Project configuration](#project-configuration)
 - [CLI overview](#cli-overview)
@@ -27,7 +66,7 @@ This file is the single source of truth for user-facing instructions.
 - [Output formats](#output-formats)
 - [HTTP API](#http-api)
 - [Logging and debugging](#logging-and-debugging)
-- [Troubleshooting](#troubleshooting)
+- [Troubleshooting](TROUBLESHOOTING.md)
 - [Updating](#updating)
 - [Uninstalling](#uninstalling)
 - [Platform notes](#platform-notes)
@@ -57,8 +96,39 @@ Unix-like systems following the XDG conventions).
 
 ## Installation
 
-CtxC does not yet publish prebuilt binaries or packages. Build it from
-source, then put the resulting executable on your `PATH`.
+One command, on a machine with no Rust and no Node. The script detects the
+platform, downloads the matching release, checks it against the published
+`SHA256SUMS`, and puts the binary on your `PATH`.
+
+```bash
+# macOS, Linux
+curl -fsSL https://raw.githubusercontent.com/nirajgirixd/ctxc/main/install.sh | sh
+```
+
+```powershell
+# Windows
+irm https://raw.githubusercontent.com/nirajgirixd/ctxc/main/install.ps1 | iex
+```
+
+Both accept the same two settings, as environment variables:
+
+| Variable | Meaning | Default |
+|----------|---------|---------|
+| `CTXC_VERSION` | The release tag to install, e.g. `v0.2.0` | The latest release |
+| `CTXC_BIN_DIR` | Where to put the binary | `~/.local/bin`, or `%LOCALAPPDATA%\Programs\ctxc` |
+
+Prefer not to pipe a script into a shell? Download the archive for your
+platform from the [releases page](https://github.com/nirajgirixd/ctxc/releases),
+check it against `SHA256SUMS`, and copy the binary onto your `PATH` yourself.
+
+Then:
+
+```bash
+cd your-project
+ctxc init
+```
+
+To build it yourself instead, see [Building from source](#building-from-source).
 
 ---
 
@@ -131,6 +201,28 @@ cargo fmt --all --check
 ---
 
 ## First run
+
+One command sets a project up. `ctxc init` registers it, indexes it, tells the
+coding agents in that directory about CtxC, and offers to start the daemon —
+and every step of it is safe to run twice.
+
+```bash
+cd your-project
+ctxc init
+```
+
+| Flag | Effect |
+|------|--------|
+| `--no-index` | Register the project without reading its code |
+| `--no-agents` | Leave the agent instruction files alone |
+| `--start` | Start the daemon without asking |
+| `--yes`, `-y` | Answer yes to every question, for unattended runs |
+
+It ends by printing the two or three commands worth trying next, and the one
+line that installs tab completion for your shell.
+
+The rest of this section is what `ctxc init` does, one command at a time, for
+anyone who wants to do it by hand.
 
 CtxC works with no setup at all — the database and directories are created
 on first use.
@@ -264,6 +356,7 @@ path = "auto"                        # "auto" = platform data dir; anything else
 
 [budget]
 default = 32000                      # token budget when a command does not supply one
+tokenizer = "heuristic"              # "cl100k" needs a build with that feature
 
 [daemon]
 enabled = true                       # false refuses to serve the dashboard
@@ -309,9 +402,38 @@ Values are validated when they are loaded, and an invalid one names itself:
   `semantic.redundancy_threshold`, and `semantic.diversity` must be `0.0`–`1.0`
 - `budget.default`, `semantic.dimensions`,
   `ranking.recency_half_life_days`, and `dashboard.port` must be greater than zero
+- `budget.tokenizer` must name a tokenizer this build carries
 - `ranking.*` weights must be zero or more
 - `metrics.cost_per_million_input_tokens` must be zero or more
 - `dashboard.port` must differ from `daemon.port` (unless `daemon.port = 0`)
+
+### Exact token counts
+
+The tokenizer CtxC ships is an estimator. It needs no vocabulary and no
+download, which is what lets a fresh install work offline — and it is honest
+about being approximate, so every count it produces is labelled an estimate and
+every budget carries a safety margin.
+
+A build compiled with the `cl100k` feature also offers the exact byte-pair
+encoder GPT-4 and its relatives use:
+
+```bash
+cargo build --release -p ctxc-cli --features cl100k
+```
+
+```toml
+[budget]
+tokenizer = "cl100k"
+```
+
+Counts are then exact, `estimated` is `false` wherever CtxC reports it, and a
+budget can be filled to its edge. The vocabulary is compiled into the binary —
+this adds megabytes to the build and no network call at any point.
+
+A build without the feature refuses `budget.tokenizer = "cl100k"` rather than
+quietly estimating under the exact one's name.
+
+---
 
 ### Environment variables
 
@@ -337,6 +459,7 @@ and are overridden by command-line flags. Booleans accept `true`/`false`,
 | `CTXC_GRAPH_ENABLED` | `graph.enabled` |
 | `CTXC_STORAGE_PATH` | `storage.path` |
 | `CTXC_BUDGET_DEFAULT` | `budget.default` |
+| `CTXC_BUDGET_TOKENIZER` | `budget.tokenizer` |
 | `CTXC_DAEMON_ENABLED` | `daemon.enabled` |
 | `CTXC_DAEMON_AUTO_START` | `daemon.auto_start` |
 | `CTXC_DAEMON_BIND` | `daemon.bind` |
@@ -440,24 +563,27 @@ ctxc optimize build.log > optimized.txt        # only the content is redirected
 
 ## Command reference
 
-CtxC advertises nine commands. Each one covers a group of related work, so
+CtxC advertises ten commands. Each one covers a group of related work, so
 there is one obvious place to look rather than twenty-one names to choose
 between.
 
 | Command | Purpose |
 |---------|---------|
+| [`init`](#ctxc-init) | Set a project up: register it, index it, tell your agents about it |
 | [`optimize`](#ctxc-optimize) | Shrink input: a file, several files, stdin, or a command's output |
 | [`find`](#ctxc-find) | Search a project, rank by meaning, or recover a stored reference |
 | [`project`](#ctxc-project) | Manage projects, and read their code with `index` and `graph` |
 | [`start`](#ctxc-start) | Start the daemon, in this terminal or in the background |
 | [`stop`](#ctxc-stop) | Stop the daemon and every other CtxC process |
+| [`doctor`](#ctxc-doctor) | Check this installation, and say how to fix what is wrong |
 | [`status`](#ctxc-status) | The state of this installation; `--daemon` and `--metrics` for detail |
 | [`config`](#ctxc-config) | Inspect configuration, and with `agents` set up the tools that use CtxC |
 | [`dashboard`](#ctxc-dashboard) | Open the local dashboard in a browser |
 | [`update`](#ctxc-update) | Fetch the latest source, build it, replace this binary |
 
-`ctxc mcp` also exists. Agents spawn it; people rarely run it directly, so it
-is left out of `--help`.
+`ctxc mcp` and `ctxc completions` also exist and are left out of `--help`:
+agents spawn the first, and a shell reads the second once at startup rather
+than a person running it.
 
 #### Names from earlier versions
 
@@ -483,12 +609,119 @@ rather than removed, so existing scripts and aliases keep working.
 
 ---
 
+### `ctxc init`
+
+Everything a project needs, in the order it needs it.
+
+```bash
+ctxc init [PATH] [--no-index] [--no-agents] [--start] [--yes]
+```
+
+`PATH` defaults to the current directory. In order, it:
+
+1. registers the project, as `ctxc project add` would;
+2. indexes it, printing a progress line while it works;
+3. writes CtxC guidance into the instruction file of every coding agent it
+   detects in that directory;
+4. offers to start the daemon, and starts it without asking under `--start`
+   or `--yes`.
+
+Every one of those steps is idempotent, so running `ctxc init` again on a
+project that is already set up reports its state rather than disturbing it.
+
+| Flag | Effect |
+|------|--------|
+| `--no-index` | Register the project without reading its code |
+| `--no-agents` | Leave the agent instruction files alone |
+| `--start` | Start the daemon without asking |
+| `--yes`, `-y` | Answer yes to every question, for unattended runs |
+
+```text
+  1/4  registered ctxc
+  2/4  indexing /home/me/ctxc...
+  2/4  indexed 211 files, 4,829 symbols in 239 ms
+  3/4  told claude, agents about CtxC
+  4/4  started the daemon
+
+ctxc is set up.
+
+Next:
+  ctxc find "<question>"        find the code that answers it
+  ctxc optimize -- cargo test   shrink a command's output
+  ctxc status                   see where things stand
+
+For tab completion, once:
+  ctxc completions fish > ~/.config/fish/completions/ctxc.fish
+```
+
+The step lines go to stderr and only in `human` format, so
+`ctxc --format json init` is one parseable document.
+
+---
+
+### `ctxc doctor`
+
+Check the installation, and print the fix beside anything that is wrong.
+
+```bash
+ctxc doctor
+```
+
+It checks that the database opens, is on the current schema and is not locked;
+that the data directory takes a write; that the daemon is answering and has
+left no stale lockfile; that every registered project still exists and has
+been indexed recently; that agent guidance points at a `ctxc` on `PATH`; and
+whether this build carries the dashboard.
+
+```text
+ok    database              schema 8, writable
+ok    data directory        /home/me/.local/share/ctxc writable
+ok    daemon                not running
+FAIL  project old-service   /home/me/old-service no longer exists
+      ctxc project remove old-service
+ok    agents                2 installed; ctxc found at /home/me/.local/bin/ctxc
+ok    dashboard             compiled into this build
+
+5 passed, 0 warning(s), 1 failure(s).
+```
+
+The exit code is non-zero when a check fails, so this works in a script as
+well as in a terminal. [TROUBLESHOOTING.md](TROUBLESHOOTING.md) covers the
+errors individual commands print.
+
+---
+
+### `ctxc completions`
+
+Print a tab-completion script for a shell.
+
+```bash
+ctxc completions bash|zsh|fish|powershell|elvish
+```
+
+Hidden from `--help`, because a shell reads it once at startup rather than a
+person running it. `ctxc init` prints the line that installs it for the shell
+in use.
+
+```bash
+ctxc completions bash > ~/.local/share/bash-completion/completions/ctxc
+ctxc completions zsh  > "${fpath[1]}/_ctxc"
+ctxc completions fish > ~/.config/fish/completions/ctxc.fish
+ctxc completions elvish > ~/.config/elvish/lib/ctxc.elv
+```
+
+```powershell
+ctxc completions powershell | Out-String | Invoke-Expression
+```
+
+---
+
 ### `ctxc optimize`
 
 Optimize one input and write the result to stdout.
 
 ```text
-ctxc optimize [INPUT] [--from <COMMAND>] [--budget <TOKENS>] [--no-store]
+ctxc optimize [INPUT] [--from <COMMAND>] [--budget <TOKENS>] [--no-store] [--no-cache]
 ```
 
 | Argument / flag | Default | Meaning |
@@ -497,6 +730,7 @@ ctxc optimize [INPUT] [--from <COMMAND>] [--budget <TOKENS>] [--no-store]
 | `--from <COMMAND>` | — | Attribute the input to a command, so tool-aware optimization applies. |
 | `--budget <TOKENS>` | `budget.default` | Token budget for the result. |
 | `--no-store` | off | Do not keep the original in the context database. |
+| `--no-cache` | off | Optimize again rather than reusing an identical earlier result. |
 
 ```bash
 ctxc optimize build.log
@@ -583,6 +817,7 @@ ctxc optimize <INPUT>... [--budget <TOKENS>] [--no-store]
 | `INPUT...` | required | Files to compile, in the order they should appear. `-` reads standard input. |
 | `--budget <TOKENS>` | `budget.default` | Token budget for the whole document. |
 | `--no-store` | off | Do not keep the originals in the context database. |
+| `--no-cache` | off | Optimize again rather than reusing an identical earlier result. |
 
 ```bash
 ctxc optimize src/auth.rs src/session.rs README.md --budget 4000 > context.txt
@@ -625,6 +860,7 @@ ctxc optimize [--budget <TOKENS>] [--no-store] -- <COMMAND>...
 | `COMMAND...` | required | The command to run, after `--`. |
 | `--budget <TOKENS>` | `budget.default` | Token budget for the result. |
 | `--no-store` | off | Do not keep the original output. |
+| `--no-cache` | off | Optimize again rather than reusing an identical earlier result. |
 
 ```bash
 ctxc optimize -- cargo test
@@ -1707,70 +1943,9 @@ ctxc start
 
 ## Troubleshooting
 
-**`<path> has not been indexed`**
-Run `ctxc project index` in that directory first. `find` and `project graph` read the
-index; they do not scan the filesystem.
-
-**`no input given, and standard input is a terminal`**
-`optimize` reads stdin when no file is given. Pass a file, or
-pipe something in: `git status | ctxc optimize`.
-
-**`embeddings are switched off`**
-`ctxc find --similar` needs embeddings. Set `semantic.enabled = true`, then
-re-run `ctxc project index` to build them.
-
-**`<path> has no embeddings`**
-Embeddings were turned on after the project was indexed. Run `ctxc project index`
-again.
-
-**`nothing matching "..." fits a budget of N tokens`**
-Raise `--budget`, or search for something narrower.
-
-**`no context is stored for ctxc://context/<id>`**
-The reference was produced with `--no-store`, or the database was cleared.
-Re-run the command that produced it.
-
-**`a daemon is already running (pid ..., port ...)`**
-Check it with `ctxc status --daemon`, or stop it with `ctxc stop`.
-
-**`Daemon: not running (a lockfile was left behind)`**
-A daemon exited uncleanly. `ctxc stop` clears the lockfile.
-
-**`no daemon is running`** from `ctxc stop`
-Nothing was running: no daemon, and no other CtxC process for this data
-directory. Try `ctxc stop --all` if you believe one is running under a
-different `CTXC_HOME`.
-
-**`Could not stop pid <pid>: ...`**
-The process refused to end, usually because it belongs to another user or is
-being held open by a debugger. Run `ctxc stop` again, or end it yourself.
-
-**`the daemon did not start`**
-Run `ctxc start` in the foreground to see the failure.
-
-**`the daemon is not answering on port <port>`**
-Start it with `ctxc start`, or check `ctxc status --daemon`.
-
-**`the dashboard is disabled in configuration`**
-Set `dashboard.enabled = true`, or use `ctxc status --metrics` instead.
-
-**`This build of CtxC does not include the dashboard.`**
-The binary was built without the web UI. See
-[Including the dashboard](#including-the-dashboard).
-
-**`failed to resolve CtxC directories for this platform`**
-The variables CtxC needs are not set — `APPDATA` on Windows, `HOME`
-elsewhere. Set `CTXC_HOME` to point every directory at one place.
-
-**A configuration key is rejected**
-Files reject unknown keys on purpose, so a typo is an error rather than a
-setting that silently does nothing. Compare against
-[the reference](#configuration-reference), or regenerate a known-good file
-with `ctxc config init --force`.
-
-**Input is too large**
-A single context is capped at 16 MB. Larger material is a job for
-`ctxc project index`, not for one context.
+Moved to [TROUBLESHOOTING.md](TROUBLESHOOTING.md), which lists every error
+CtxC prints and what to type about it. `ctxc doctor` checks the installation
+itself and prints the fix beside anything it finds wrong.
 
 ---
 

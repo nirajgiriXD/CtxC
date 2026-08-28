@@ -328,24 +328,28 @@ Designed for:
 
 ## Quick Start
 
-CtxC is a single native binary with no runtime dependency. Build it from source:
+Three commands. CtxC is a single native binary with no runtime dependency, so there is nothing else to install.
 
 ```bash
-cargo build --release
-```
+# 1. Install it
+curl -fsSL https://raw.githubusercontent.com/nirajgirixd/ctxc/main/install.sh | sh
 
-Then shrink noisy output, index a project, and pull out only what a task needs:
+# 2. Set a project up: register it, index it, tell your agents about it
+cd your-project && ctxc init
 
-```bash
-# Optimize what a command printed
-ctxc optimize -- cargo test
-
-# Index a project, then assemble task-scoped context
-ctxc project index .
+# 3. Ask it something
 ctxc find "why does the session expire early" --compile --budget 6000
 ```
 
-Full instructions — prerequisites, installation, configuration, every command, workflows, troubleshooting — are in **[USAGE.md](USAGE.md)**.
+On Windows, install with `irm https://raw.githubusercontent.com/nirajgirixd/ctxc/main/install.ps1 | iex`.
+
+Shrinking noisy output needs no setup at all:
+
+```bash
+ctxc optimize -- cargo test
+```
+
+Full instructions — configuration, every command, workflows — are in **[USAGE.md](USAGE.md)**, and **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** covers what to do when something is wrong. Prefer to build from source? See [Building from source](USAGE.md#building-from-source).
 
 ---
 
@@ -360,7 +364,7 @@ CtxC ships adapters that tell coding agents it exists, and an MCP server that ha
 - Cursor
 - Cline
 
-See [USAGE.md](USAGE.md#ctxc-integrations) for how to install them.
+See [USAGE.md](USAGE.md#ctxc-config-agents) for how to install them.
 
 ---
 
