@@ -7,6 +7,7 @@ mod error;
 mod logging;
 mod output;
 mod process;
+mod style;
 mod terminate;
 
 use std::process::ExitCode;
@@ -16,6 +17,7 @@ use clap::Parser;
 use crate::app::App;
 use crate::cli::Cli;
 use crate::output::Printer;
+use crate::style::{Palette, Stream};
 
 /// Exit code for a failed command. Clap already uses 2 for usage errors.
 const FAILURE: u8 = 1;
@@ -27,7 +29,8 @@ fn main() -> ExitCode {
     match run(&cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            eprintln!("{}", error::report(&err));
+            let palette = Palette::for_stream(Stream::Stderr, cli.color);
+            eprintln!("{}", error::paint(&error::report(&err), palette));
             ExitCode::from(FAILURE)
         }
     }
@@ -35,7 +38,7 @@ fn main() -> ExitCode {
 
 fn run(cli: &Cli) -> anyhow::Result<()> {
     let app = App::bootstrap(cli)?;
-    let mut printer = Printer::stdout(cli.format);
+    let mut printer = Printer::stdout(cli.format, cli.color);
 
     // Metrics are written after the command, whether or not it succeeded: a
     // failed optimization is exactly the kind of thing worth having counted.

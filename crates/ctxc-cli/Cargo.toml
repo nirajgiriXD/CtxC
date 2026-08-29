@@ -20,6 +20,8 @@ default = []
 cl100k = ["ctxc-core/cl100k"]
 
 [dependencies]
+anstyle.workspace = true
+anstyle-query.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 clap_complete.workspace = true

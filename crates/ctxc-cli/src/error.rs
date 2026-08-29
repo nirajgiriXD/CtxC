@@ -6,6 +6,8 @@ use ctxc_context::ContextError;
 use ctxc_engine::EngineError;
 use ctxc_store::StoreError;
 
+use crate::style::Palette;
+
 /// An error raised by the CLI itself, carrying the suggestion to print under
 /// `Try:`.
 #[derive(Debug)]
@@ -49,6 +51,38 @@ pub fn report(error: &anyhow::Error) -> String {
     ctxc_core::report_with(error.as_ref(), fallback)
 }
 
+/// Colour a report so its three parts stay apart at a glance.
+///
+/// The failure itself is what the reader came for; `Reason:` and `Try:` are
+/// signposts, and the command under `Try:` is the one thing here that can be
+/// copied and run. Line by line, because only the headings are fixed — the
+/// text under them comes from whichever crate raised the error.
+pub fn paint(report: &str, palette: Palette) -> String {
+    let mut out = String::with_capacity(report.len());
+    let mut section = None;
+    for (index, line) in report.lines().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        match line.trim_end() {
+            "Reason:" | "Try:" => {
+                section = Some(line.trim_end().to_owned());
+                out.push_str(&palette.label(line).to_string());
+            }
+            "" => {
+                section = None;
+                out.push_str(line);
+            }
+            _ if index == 0 => out.push_str(&palette.bad(line).to_string()),
+            _ if section.as_deref() == Some("Try:") => {
+                out.push_str(&palette.command(line).to_string());
+            }
+            _ => out.push_str(line),
+        }
+    }
+    out
+}
+
 /// The hint one link in the chain can offer, whichever crate defined it.
 fn hint_of(cause: &(dyn std::error::Error + 'static)) -> Option<String> {
     if let Some(cli) = cause.downcast_ref::<CliError>() {
@@ -80,6 +114,16 @@ fn hint_of(cause: &(dyn std::error::Error + 'static)) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn painting_keeps_every_character_of_the_report() {
+        let error = anyhow::Error::new(
+            CliError::new("configuration file already exists")
+                .with_hint("ctxc config init --force"),
+        );
+        let text = report(&error);
+        assert_eq!(paint(&text, crate::style::PLAIN), text.trim_end());
+    }
 
     #[test]
     fn cli_hints_are_reported() {

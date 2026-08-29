@@ -9,6 +9,8 @@ use std::io::{self, Write};
 use clap::ValueEnum;
 use serde::Serialize;
 
+use crate::style::{ColorChoice, Palette, Stream};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 #[value(rename_all = "lower")]
 pub enum OutputFormat {
@@ -31,17 +33,29 @@ pub trait Render: Serialize {
 pub struct Printer<W: Write> {
     format: OutputFormat,
     writer: W,
+    palette: Palette,
+    stderr_palette: Palette,
 }
 
 impl Printer<io::Stdout> {
-    pub fn stdout(format: OutputFormat) -> Self {
-        Printer::new(format, io::stdout())
+    pub fn stdout(format: OutputFormat, color: ColorChoice) -> Self {
+        let mut printer = Printer::new(format, io::stdout());
+        printer.palette = Palette::for_stream(Stream::Stdout, color);
+        printer.stderr_palette = Palette::for_stream(Stream::Stderr, color);
+        printer
     }
 }
 
 impl<W: Write> Printer<W> {
+    /// A printer that writes plain text. Colour is attached by
+    /// [`Printer::stdout`], which knows what the streams actually are.
     pub fn new(format: OutputFormat, writer: W) -> Self {
-        Printer { format, writer }
+        Printer {
+            format,
+            writer,
+            palette: crate::style::PLAIN,
+            stderr_palette: crate::style::PLAIN,
+        }
     }
 
     /// The format this printer was built with.
@@ -79,7 +93,7 @@ impl<W: Write> Printer<W> {
         let mut stderr = io::stderr();
         let _ = writeln!(stderr);
         for line in lines {
-            let _ = writeln!(stderr, "{}", line.as_ref());
+            let _ = writeln!(stderr, "{}", self.stderr_palette.dim(line.as_ref()));
         }
     }
 

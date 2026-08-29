@@ -48,6 +48,8 @@ ctxc-optimizer = { path = "crates/ctxc-optimizer", version = "0.1.0" }
 ctxc-store = { path = "crates/ctxc-store", version = "0.1.0" }
 ctxc-watcher = { path = "crates/ctxc-watcher", version = "0.1.0" }
 
+anstyle = "1"
+anstyle-query = "1"
 anyhow = "1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws"] }
 blake3 = "1"

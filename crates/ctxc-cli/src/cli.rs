@@ -14,6 +14,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::output::OutputFormat;
+use crate::style::ColorChoice;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -30,6 +31,10 @@ pub struct Cli {
     /// Output format.
     #[arg(long, value_name = "FORMAT", global = true, default_value = "human")]
     pub format: OutputFormat,
+
+    /// When to colour human output.
+    #[arg(long, value_name = "WHEN", global = true, default_value = "auto")]
+    pub color: ColorChoice,
 
     /// Log informational messages to stderr.
     #[arg(short, long, global = true)]

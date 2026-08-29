@@ -373,6 +373,8 @@ dependencies = [
 name = "ctxc-cli"
 version = "0.1.0"
 dependencies = [
+ "anstyle",
+ "anstyle-query",
  "anyhow",
  "clap",
  "clap_complete",
