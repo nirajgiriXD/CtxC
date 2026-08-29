@@ -10,42 +10,78 @@ use ctxc_metrics::{MetricEvent, Operation};
 
 use crate::app::App;
 use crate::output::{human_count, human_delta, human_percent, Printer, Render};
+use crate::style::Palette;
 
 impl Render for Analysis {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "{}", self.source)?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(out, "{}", palette.path(&self.source))?;
         writeln!(out)?;
-        writeln!(out, "Type:        {}", self.content_type.as_str())?;
-        writeln!(out, "Size:        {} bytes", human_count(self.bytes as u32))?;
-        writeln!(out, "Lines:       {}", human_count(self.lines))?;
         writeln!(
             out,
-            "Fragments:   {}{}",
-            human_count(self.fragments),
+            "{} {}",
+            palette.label("Type:       "),
+            self.content_type.as_str()
+        )?;
+        writeln!(
+            out,
+            "{} {} {}",
+            palette.label("Size:       "),
+            palette.number(human_count(self.bytes as u32)),
+            palette.dim("bytes")
+        )?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Lines:      "),
+            palette.number(human_count(self.lines))
+        )?;
+        writeln!(
+            out,
+            "{} {}{}",
+            palette.label("Fragments:  "),
+            palette.number(human_count(self.fragments)),
             match self.duplicate_fragments {
                 0 => String::new(),
-                duplicates => format!("  ({} duplicated)", human_count(duplicates)),
+                duplicates => format!(
+                    "  {}",
+                    palette.dim(format!("({} duplicated)", human_count(duplicates)))
+                ),
             }
         )?;
         writeln!(
             out,
-            "Tokens:      {}{}",
-            human_count(self.tokens),
-            if self.estimated { "  (estimated)" } else { "" }
+            "{} {}{}",
+            palette.label("Tokens:     "),
+            palette.number(human_count(self.tokens)),
+            if self.estimated {
+                format!("  {}", palette.dim("(estimated)"))
+            } else {
+                String::new()
+            }
         )?;
         writeln!(out)?;
-        writeln!(out, "Optimizer:   {}", self.optimizer)?;
         writeln!(
             out,
-            "Projected:   {} tokens  ({} smaller)",
-            human_count(self.projected_tokens),
-            human_percent(self.projected_reduction)
+            "{} {}",
+            palette.label("Optimizer:  "),
+            palette.symbol(&self.optimizer)
+        )?;
+        writeln!(
+            out,
+            "{} {} {}  {}",
+            palette.label("Projected:  "),
+            palette.number(human_count(self.projected_tokens)),
+            palette.dim("tokens"),
+            palette.good(format!(
+                "({} smaller)",
+                human_percent(self.projected_reduction)
+            ))
         )?;
 
         let savings = &self.projected_savings_by_stage;
         if savings.total() != 0 {
             writeln!(out)?;
-            writeln!(out, "Savings by stage:")?;
+            writeln!(out, "{}", palette.heading("Savings by stage:"))?;
             for (stage, tokens) in [
                 ("filtering", savings.filtering),
                 ("deduplication", savings.deduplication),
@@ -53,7 +89,13 @@ impl Render for Analysis {
                 ("selection", savings.selection),
             ] {
                 if tokens != 0 {
-                    writeln!(out, "  {stage:<16}{}", human_delta(tokens))?;
+                    let delta = human_delta(tokens);
+                    let delta = if tokens < 0 {
+                        palette.warn(delta).to_string()
+                    } else {
+                        palette.good(delta).to_string()
+                    };
+                    writeln!(out, "  {:<16}{delta}", palette.label(stage))?;
                 }
             }
         }

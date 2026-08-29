@@ -19,6 +19,7 @@ use crate::app::App;
 use crate::cli::ProjectAction;
 use crate::error::CliError;
 use crate::output::{human_count, Printer, Render};
+use crate::style::Palette;
 
 /// A project as the CLI reports it.
 #[derive(Debug, Serialize)]
@@ -63,36 +64,74 @@ impl ProjectReport {
 }
 
 impl Render for ProjectReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "{}", self.name)?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(out, "{}", palette.heading(&self.name))?;
         writeln!(out)?;
-        writeln!(out, "Id:         {}", self.id)?;
         writeln!(
             out,
-            "Path:       {}{}",
-            self.path,
-            if self.exists { "" } else { "  (missing)" }
+            "{} {}",
+            palette.label("Id:        "),
+            palette.reference(&self.id)
         )?;
-        writeln!(out, "Status:     {}", self.status)?;
         writeln!(
             out,
-            "Indexed:    {} files, {} symbols",
-            human_count(self.indexed_files as u32),
-            human_count(self.symbols as u32)
+            "{} {}{}",
+            palette.label("Path:      "),
+            palette.path(&self.path),
+            if self.exists {
+                String::new()
+            } else {
+                format!("  {}", palette.bad("(missing)"))
+            }
+        )?;
+        writeln!(out, "{} {}", palette.label("Status:    "), self.status)?;
+        writeln!(
+            out,
+            "{} {} {}, {} {}",
+            palette.label("Indexed:   "),
+            palette.number(human_count(self.indexed_files as u32)),
+            palette.dim("files"),
+            palette.number(human_count(self.symbols as u32)),
+            palette.dim("symbols")
         )?;
         if !self.languages.is_empty() {
-            writeln!(out, "Languages:  {}", self.languages.join(", "))?;
+            writeln!(
+                out,
+                "{} {}",
+                palette.label("Languages: "),
+                palette.symbol(self.languages.join(", "))
+            )?;
         }
         if !self.frameworks.is_empty() {
-            writeln!(out, "Frameworks: {}", self.frameworks.join(", "))?;
+            writeln!(
+                out,
+                "{} {}",
+                palette.label("Frameworks:"),
+                palette.symbol(self.frameworks.join(", "))
+            )?;
         }
         if let Some(manager) = &self.package_manager {
-            writeln!(out, "Packages:   {manager}")?;
+            writeln!(
+                out,
+                "{} {}",
+                palette.label("Packages:  "),
+                palette.symbol(manager)
+            )?;
         }
-        writeln!(out, "Git:        {}", if self.git { "yes" } else { "no" })?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Git:       "),
+            if self.git { "yes" } else { "no" }
+        )?;
         match &self.last_indexed_at {
-            Some(at) => writeln!(out, "Last index: {at}"),
-            None => writeln!(out, "Last index: never"),
+            Some(at) => writeln!(out, "{} {at}", palette.label("Last index:")),
+            None => writeln!(
+                out,
+                "{} {}",
+                palette.label("Last index:"),
+                palette.warn("never")
+            ),
         }
     }
 }
@@ -104,7 +143,7 @@ pub struct ProjectList {
 }
 
 impl Render for ProjectList {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         if self.projects.is_empty() {
             return writeln!(
                 out,
@@ -112,20 +151,29 @@ impl Render for ProjectList {
             );
         }
 
-        writeln!(out, "{:<24}{:<10}{:<10}PATH", "PROJECT", "STATUS", "INDEX")?;
+        writeln!(
+            out,
+            "{}",
+            palette.heading(format!(
+                "{:<24}{:<10}{:<10}PATH",
+                "PROJECT", "STATUS", "INDEX"
+            ))
+        )?;
         for project in &self.projects {
+            // The index column says three different things, and which one it
+            // is matters more than the number in it.
             let index = match (project.exists, project.indexed_files) {
-                (false, _) => "missing".to_string(),
-                (true, 0) => "pending".to_string(),
-                (true, files) => format!("{} files", human_count(files as u32)),
+                (false, _) => palette.bad("missing".to_string()),
+                (true, 0) => palette.warn("pending".to_string()),
+                (true, files) => palette.number(format!("{} files", human_count(files as u32))),
             };
             writeln!(
                 out,
                 "{:<24}{:<10}{:<10}{}",
-                truncate(&project.name, 23),
-                project.status,
+                palette.heading(truncate(&project.name, 23)),
+                palette.dim(&project.status),
                 index,
-                project.path
+                palette.path(&project.path)
             )?;
         }
         Ok(())

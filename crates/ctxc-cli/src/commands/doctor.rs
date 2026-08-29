@@ -20,6 +20,7 @@ use ctxc_store::{Database, SqliteProjectStore};
 use crate::app::App;
 use crate::error::CliError;
 use crate::output::{Printer, Render};
+use crate::style::Palette;
 
 /// A project indexed longer ago than this is worth re-reading. Long enough
 /// that a week of not touching a project is not a complaint, short enough that
@@ -44,6 +45,16 @@ impl Health {
             Health::Pass => "ok  ",
             Health::Warn => "warn",
             Health::Fail => "FAIL",
+        }
+    }
+
+    /// The marker, painted for what it means. Scanning the left-hand column
+    /// for the one red word is the whole point of this report.
+    fn painted(self, palette: Palette) -> String {
+        match self {
+            Health::Pass => palette.good(self.marker()).to_string(),
+            Health::Warn => palette.warn(self.marker()).to_string(),
+            Health::Fail => palette.bad(self.marker()).to_string(),
         }
     }
 }
@@ -110,28 +121,34 @@ impl Diagnosis {
 }
 
 impl Render for Diagnosis {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         for check in &self.checks {
             writeln!(
                 out,
                 "{}  {:<22}{}",
-                check.health.marker(),
-                check.name,
-                check.detail
+                check.health.painted(palette),
+                palette.heading(&check.name),
+                palette.dim(&check.detail)
             )?;
             if let Some(fix) = &check.fix {
-                writeln!(out, "      {fix}")?;
+                writeln!(out, "      {}", palette.command(fix))?;
             }
         }
 
         writeln!(out)?;
         if self.failures == 0 && self.warnings == 0 {
-            return writeln!(out, "{} check(s) passed. Nothing to fix.", self.passed);
+            return writeln!(
+                out,
+                "{} check(s) passed. Nothing to fix.",
+                palette.good(self.passed)
+            );
         }
         writeln!(
             out,
             "{} passed, {} warning(s), {} failure(s).",
-            self.passed, self.warnings, self.failures
+            palette.good(self.passed),
+            palette.warn(self.warnings),
+            palette.bad(self.failures)
         )
     }
 }

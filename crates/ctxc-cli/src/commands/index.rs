@@ -19,31 +19,62 @@ use ctxc_store::{IndexStore, SqliteEmbeddingStore, SqliteIndexStore};
 
 use crate::app::App;
 use crate::output::{human_count, OutputFormat, Printer, Render};
+use crate::style::Palette;
 
 impl Render for IndexReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "{}", self.root.display())?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(out, "{}", palette.path(self.root.display()))?;
         writeln!(out)?;
-        writeln!(out, "Scanned:       {}", human_count(self.scanned as u32))?;
-        writeln!(out, "Indexed:       {}", human_count(self.indexed as u32))?;
-        writeln!(out, "Unchanged:     {}", human_count(self.unchanged as u32))?;
+        let mut field = |name: &str, value: String| -> io::Result<()> {
+            writeln!(out, "{} {}", palette.label(format!("{name:<14}")), value)
+        };
+        field(
+            "Scanned:",
+            palette.number(human_count(self.scanned as u32)).to_string(),
+        )?;
+        field(
+            "Indexed:",
+            palette.number(human_count(self.indexed as u32)).to_string(),
+        )?;
+        field(
+            "Unchanged:",
+            palette.dim(human_count(self.unchanged as u32)).to_string(),
+        )?;
         if self.removed > 0 {
-            writeln!(out, "Removed:       {}", human_count(self.removed as u32))?;
+            field(
+                "Removed:",
+                palette.warn(human_count(self.removed as u32)).to_string(),
+            )?;
         }
         if self.embedded > 0 {
-            writeln!(out, "Embedded:      {}", human_count(self.embedded as u32))?;
+            field(
+                "Embedded:",
+                palette
+                    .number(human_count(self.embedded as u32))
+                    .to_string(),
+            )?;
         }
-        writeln!(out, "Symbols:       {}", human_count(self.symbols as u32))?;
-        writeln!(
-            out,
-            "Relationships: {}",
-            human_count(self.relationships as u32)
+        field(
+            "Symbols:",
+            palette.number(human_count(self.symbols as u32)).to_string(),
         )?;
-        writeln!(out, "Ignored:       {}", human_count(self.ignored as u32))?;
-        writeln!(
-            out,
-            "Duration:      {} ms",
-            human_count(self.duration_ms as u32)
+        field(
+            "Relationships:",
+            palette
+                .number(human_count(self.relationships as u32))
+                .to_string(),
+        )?;
+        field(
+            "Ignored:",
+            palette.dim(human_count(self.ignored as u32)).to_string(),
+        )?;
+        field(
+            "Duration:",
+            format!(
+                "{} {}",
+                palette.number(human_count(self.duration_ms as u32)),
+                palette.dim("ms")
+            ),
         )
     }
 }
@@ -80,21 +111,44 @@ pub struct GraphReport {
 }
 
 impl Render for GraphReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         if let Some(file) = &self.file {
-            writeln!(out, "{}", file.path)?;
+            writeln!(out, "{}", palette.path(&file.path))?;
             writeln!(out)?;
-            write_list(out, "Depends on", &file.dependencies)?;
-            write_list(out, "Depended on by", &file.dependents)?;
-            write_list(out, "Unresolved imports", &file.unresolved_imports)?;
+            write_list(out, "Depends on", &file.dependencies, palette, true)?;
+            write_list(out, "Depended on by", &file.dependents, palette, true)?;
+            // Unresolved imports are names, not files in this project, so they
+            // are not painted as paths — the reader would go looking for them.
+            write_list(
+                out,
+                "Unresolved imports",
+                &file.unresolved_imports,
+                palette,
+                false,
+            )?;
             return Ok(());
         }
 
-        writeln!(out, "{}", self.root)?;
+        writeln!(out, "{}", palette.path(&self.root))?;
         writeln!(out)?;
-        writeln!(out, "Files:  {}", human_count(self.files as u32))?;
-        writeln!(out, "Nodes:  {}", human_count(self.nodes as u32))?;
-        writeln!(out, "Edges:  {}", human_count(self.edges as u32))?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Files: "),
+            palette.number(human_count(self.files as u32))
+        )?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Nodes: "),
+            palette.number(human_count(self.nodes as u32))
+        )?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Edges: "),
+            palette.number(human_count(self.edges as u32))
+        )?;
 
         if self.most_depended_on.is_empty() {
             writeln!(out)?;
@@ -102,26 +156,37 @@ impl Render for GraphReport {
         }
 
         writeln!(out)?;
-        writeln!(out, "Most depended on:")?;
+        writeln!(out, "{}", palette.heading("Most depended on:"))?;
         for entry in &self.most_depended_on {
             writeln!(
                 out,
-                "  {:<48}{} dependents",
-                entry.path,
-                human_count(entry.dependents as u32)
+                "  {:<48}{} {}",
+                palette.path(&entry.path),
+                palette.number(human_count(entry.dependents as u32)),
+                palette.dim("dependents")
             )?;
         }
         Ok(())
     }
 }
 
-fn write_list(out: &mut dyn Write, title: &str, items: &[String]) -> io::Result<()> {
+fn write_list(
+    out: &mut dyn Write,
+    title: &str,
+    items: &[String],
+    palette: Palette,
+    are_paths: bool,
+) -> io::Result<()> {
     if items.is_empty() {
         return Ok(());
     }
-    writeln!(out, "{title}:")?;
+    writeln!(out, "{}", palette.heading(format!("{title}:")))?;
     for item in items {
-        writeln!(out, "  {item}")?;
+        if are_paths {
+            writeln!(out, "  {}", palette.path(item))?;
+        } else {
+            writeln!(out, "  {}", palette.symbol(item))?;
+        }
     }
     writeln!(out)
 }

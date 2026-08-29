@@ -20,6 +20,7 @@ use ctxc_store::{IndexStore, SqliteIndexStore, SqliteProjectStore};
 use crate::app::App;
 use crate::commands::integrations::AppliedChange;
 use crate::output::{human_count, OutputFormat, Printer, Render};
+use crate::style::Palette;
 
 /// What one `ctxc init` run set up.
 #[derive(Debug, Serialize)]
@@ -59,37 +60,54 @@ pub enum DaemonOutcome {
 }
 
 impl Render for InitReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         writeln!(out)?;
-        writeln!(out, "{} is set up.", self.project)?;
+        writeln!(out, "{} is set up.", palette.path(&self.project))?;
         writeln!(out)?;
-        writeln!(out, "Next:")?;
-        writeln!(
+        writeln!(out, "{}", palette.heading("Next:"))?;
+
+        suggest(
             out,
-            "  ctxc find \"<question>\"        find the code that answers it"
+            palette,
+            "ctxc find \"<question>\"",
+            "find the code that answers it",
         )?;
-        writeln!(
+        suggest(
             out,
-            "  ctxc optimize -- cargo test   shrink a command's output"
+            palette,
+            "ctxc optimize -- cargo test",
+            "shrink a command's output",
         )?;
-        writeln!(
-            out,
-            "  ctxc status                   see where things stand"
-        )?;
+        suggest(out, palette, "ctxc status", "see where things stand")?;
         if self.daemon == DaemonOutcome::NotStarted {
             writeln!(out)?;
-            writeln!(
+            suggest(
                 out,
-                "  ctxc start --detach           keep the index up to date as you work"
+                palette,
+                "ctxc start --detach",
+                "keep the index up to date as you work",
             )?;
         }
         if let Some(line) = &self.completions {
             writeln!(out)?;
-            writeln!(out, "For tab completion, once:")?;
-            writeln!(out, "  {line}")?;
+            writeln!(out, "{}", palette.heading("For tab completion, once:"))?;
+            writeln!(out, "  {}", palette.command(line))?;
         }
         Ok(())
     }
+}
+
+/// One "you could run this next" line.
+///
+/// The command is the part to copy; the sentence after it is not. They are
+/// told apart by colour rather than by the reader counting columns.
+fn suggest(out: &mut dyn Write, palette: Palette, command: &str, purpose: &str) -> io::Result<()> {
+    writeln!(
+        out,
+        "  {:<28}{}",
+        palette.command(command),
+        palette.dim(purpose)
+    )
 }
 
 pub fn run<W: Write>(

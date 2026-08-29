@@ -16,6 +16,7 @@ use ctxc_daemon::{DaemonOptions, DaemonState};
 use crate::app::App;
 use crate::error::CliError;
 use crate::output::{human_count, Printer, Render};
+use crate::style::Palette;
 
 /// What `ctxc status --daemon` reports.
 #[derive(Debug, Serialize)]
@@ -89,50 +90,92 @@ impl DaemonReport {
 }
 
 impl Render for DaemonReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         if !self.running {
             writeln!(
                 out,
-                "Daemon:     {}",
+                "{} {}{}",
+                palette.label("Daemon:    "),
+                palette.warn("not running"),
                 if self.stale {
-                    "not running (a lockfile was left behind)"
+                    format!("  {}", palette.dim("(a lockfile was left behind)"))
                 } else {
-                    "not running"
+                    String::new()
                 }
             )?;
             if self.stale {
-                writeln!(out, "            run `ctxc stop` to clear it")?;
+                writeln!(
+                    out,
+                    "            {}",
+                    palette.command("run `ctxc stop` to clear it")
+                )?;
             }
             return Ok(());
         }
 
-        writeln!(out, "Daemon:     running")?;
-        writeln!(out, "PID:        {}", self.pid.unwrap_or_default())?;
-        writeln!(out, "Port:       {}", self.port.unwrap_or_default())?;
-        writeln!(out, "Uptime:     {}", uptime(self.uptime_ms.unwrap_or(0)))?;
         writeln!(
             out,
-            "Projects:   {} ({} active)",
-            human_count(self.projects.unwrap_or(0) as u32),
-            human_count(self.active_projects.unwrap_or(0) as u32)
+            "{} {}",
+            palette.label("Daemon:    "),
+            palette.good("running")
         )?;
         writeln!(
             out,
-            "Indexed:    {} files",
-            human_count(self.indexed_files.unwrap_or(0) as u32)
+            "{} {}",
+            palette.label("PID:       "),
+            palette.number(self.pid.unwrap_or_default())
         )?;
         writeln!(
             out,
-            "Watching:   {} project(s){}",
-            self.watching,
+            "{} {}",
+            palette.label("Port:      "),
+            palette.number(self.port.unwrap_or_default())
+        )?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Uptime:    "),
+            palette.number(uptime(self.uptime_ms.unwrap_or(0)))
+        )?;
+        writeln!(
+            out,
+            "{} {} {}",
+            palette.label("Projects:  "),
+            palette.number(human_count(self.projects.unwrap_or(0) as u32)),
+            palette.dim(format!(
+                "({} active)",
+                human_count(self.active_projects.unwrap_or(0) as u32)
+            ))
+        )?;
+        writeln!(
+            out,
+            "{} {} {}",
+            palette.label("Indexed:   "),
+            palette.number(human_count(self.indexed_files.unwrap_or(0) as u32)),
+            palette.dim("files")
+        )?;
+        writeln!(
+            out,
+            "{} {} {}{}",
+            palette.label("Watching:  "),
+            palette.number(self.watching),
+            palette.dim("project(s)"),
             match self.degraded {
                 0 => String::new(),
-                degraded => format!("  ({degraded} scanning instead)"),
+                degraded => format!(
+                    "  {}",
+                    palette.warn(format!("({degraded} scanning instead)"))
+                ),
             }
         )?;
         for report in self.watch.iter().filter(|report| !report.watching) {
             if let Some(reason) = &report.degraded_reason {
-                writeln!(out, "            {}: {reason}", report.project)?;
+                writeln!(
+                    out,
+                    "            {}: {}",
+                    palette.path(&report.project),
+                    palette.dim(reason)
+                )?;
             }
         }
         Ok(())
@@ -158,8 +201,13 @@ pub struct StartedReport {
 }
 
 impl Render for StartedReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "Daemon started (pid {}, port {})", self.pid, self.port)
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(
+            out,
+            "{} {}",
+            palette.good("Daemon started"),
+            palette.dim(format!("(pid {}, port {})", self.pid, self.port))
+        )
     }
 }
 

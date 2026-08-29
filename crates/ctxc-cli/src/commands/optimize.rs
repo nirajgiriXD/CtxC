@@ -30,6 +30,7 @@ use ctxc_store::{
 use crate::app::App;
 use crate::cli::OptimizeOptions;
 use crate::output::{human_count, human_delta, human_percent, OutputFormat, Printer, Render};
+use crate::style::Palette;
 
 /// Result of optimizing a single input.
 #[derive(Debug, Serialize)]
@@ -50,20 +51,35 @@ pub struct OptimizeReport {
 }
 
 impl Render for OptimizeReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        render_summary(out, &Summary::from_result(&self.result))?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        render_summary(out, &Summary::from_result(&self.result), palette)?;
         if let Some(code) = self.exit_code {
-            writeln!(out, "Exit code:        {code}")?;
+            let code = if code == 0 {
+                palette.good(code).to_string()
+            } else {
+                palette.bad(code).to_string()
+            };
+            writeln!(out, "{} {code}", palette.label("Exit code:       "))?;
         }
-        writeln!(out, "Reference:        {}", self.reference)?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Reference:       "),
+            palette.reference(&self.reference)
+        )?;
         if self.cached {
             writeln!(
                 out,
-                "                  (reused from an identical earlier run)"
+                "                  {}",
+                palette.dim("(reused from an identical earlier run)")
             )?;
         }
         if !self.stored {
-            writeln!(out, "                  (original not stored)")?;
+            writeln!(
+                out,
+                "                  {}",
+                palette.dim("(original not stored)")
+            )?;
         }
         Ok(())
     }
@@ -78,17 +94,19 @@ pub struct CompileReport {
 }
 
 impl Render for CompileReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        render_summary(out, &Summary::from_compilation(&self.compilation))?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        render_summary(out, &Summary::from_compilation(&self.compilation), palette)?;
         writeln!(out)?;
-        writeln!(out, "Sections:")?;
+        writeln!(out, "{}", palette.heading("Sections:"))?;
         for section in &self.compilation.sections {
             writeln!(
                 out,
-                "  {:<28}{} -> {} tokens",
-                section.source,
-                human_count(section.result.original_tokens),
-                human_count(section.result.optimized_tokens)
+                "  {:<28}{} {} {} {}",
+                palette.path(&section.source),
+                palette.number(human_count(section.result.original_tokens)),
+                palette.dim("->"),
+                palette.number(human_count(section.result.optimized_tokens)),
+                palette.dim("tokens")
             )?;
         }
         Ok(())
@@ -130,25 +148,28 @@ impl Summary {
     }
 }
 
-fn render_summary(out: &mut dyn Write, summary: &Summary) -> io::Result<()> {
+fn render_summary(out: &mut dyn Write, summary: &Summary, palette: Palette) -> io::Result<()> {
     writeln!(
         out,
-        "Original tokens:  {}",
-        human_count(summary.original_tokens)
+        "{} {}",
+        palette.label("Original tokens: "),
+        palette.number(human_count(summary.original_tokens))
     )?;
     writeln!(
         out,
-        "Optimized tokens: {}",
-        human_count(summary.optimized_tokens)
+        "{} {}",
+        palette.label("Optimized tokens:"),
+        palette.number(human_count(summary.optimized_tokens))
     )?;
     writeln!(
         out,
-        "Reduction:        {}{}",
-        human_percent(summary.reduction_ratio),
+        "{} {}{}",
+        palette.label("Reduction:       "),
+        palette.good(human_percent(summary.reduction_ratio)),
         if summary.estimated {
-            "  (token counts are estimates)"
+            format!("  {}", palette.dim("(token counts are estimates)"))
         } else {
-            ""
+            String::new()
         }
     )?;
 
@@ -162,7 +183,15 @@ fn render_summary(out: &mut dyn Write, summary: &Summary) -> io::Result<()> {
             ("selection", savings.selection),
         ] {
             if tokens != 0 {
-                writeln!(out, "  {stage:<16}{}", human_delta(tokens))?;
+                // A stage that costs tokens is not a saving, and the colour is
+                // the fastest way to see which kind of line this is.
+                let delta = human_delta(tokens);
+                let delta = if tokens < 0 {
+                    palette.warn(delta).to_string()
+                } else {
+                    palette.good(delta).to_string()
+                };
+                writeln!(out, "  {:<16}{delta}", palette.label(stage))?;
             }
         }
         writeln!(out)?;
@@ -374,7 +403,7 @@ fn emit<W: Write, T: Render>(printer: &mut Printer<W>, report: &T, content: &str
     match printer.format() {
         OutputFormat::Human => {
             printer.write_content(content)?;
-            report.render_human(&mut io::stderr())?;
+            report.render_human(&mut io::stderr(), printer.stderr_palette())?;
         }
         OutputFormat::Json | OutputFormat::Jsonl => printer.emit(report)?,
         OutputFormat::Quiet => printer.write_content(content)?,

@@ -28,6 +28,7 @@ use crate::app::App;
 use crate::cli::UpdateOptions;
 use crate::error::CliError;
 use crate::output::{Printer, Render};
+use crate::style::Palette;
 
 /// The remote a source checkout is updated from.
 const REMOTE: &str = "origin";
@@ -101,63 +102,127 @@ pub struct UpdateReport {
 }
 
 impl Render for UpdateReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         if self.up_to_date && !self.built {
             writeln!(
                 out,
-                "CtxC is up to date ({}/{}, {}).",
-                self.remote, self.branch, self.from
+                "{} {}",
+                palette.good("CtxC is up to date"),
+                palette.dim(format!("({}/{}, {}).", self.remote, self.branch, self.from))
             )?;
-            writeln!(out, "Source:     {}", self.source.display())?;
+            writeln!(
+                out,
+                "{} {}",
+                palette.label("Source:    "),
+                palette.path(self.source.display())
+            )?;
             return Ok(());
         }
 
         if self.checked {
-            writeln!(out, "An update is available.")?;
+            writeln!(out, "{}", palette.warn("An update is available."))?;
             writeln!(out)?;
-            writeln!(out, "Source:     {}", self.source.display())?;
-            writeln!(out, "Branch:     {}/{}", self.remote, self.branch)?;
-            writeln!(out, "Current:    {}", self.from)?;
             writeln!(
                 out,
-                "Latest:     {}  ({} ahead)",
-                self.to,
-                commits(self.behind)
+                "{} {}",
+                palette.label("Source:    "),
+                palette.path(self.source.display())
+            )?;
+            writeln!(
+                out,
+                "{} {}/{}",
+                palette.label("Branch:    "),
+                self.remote,
+                self.branch
+            )?;
+            writeln!(
+                out,
+                "{} {}",
+                palette.label("Current:   "),
+                palette.reference(&self.from)
+            )?;
+            writeln!(
+                out,
+                "{} {}  {}",
+                palette.label("Latest:    "),
+                palette.reference(&self.to),
+                palette.dim(format!("({} ahead)", commits(self.behind)))
             )?;
             writeln!(out)?;
-            writeln!(out, "Run `ctxc update` to build and install it.")?;
+            writeln!(
+                out,
+                "Run {} to build and install it.",
+                palette.command("`ctxc update`")
+            )?;
             return Ok(());
         }
 
         match &self.version {
-            Some(version) => writeln!(out, "Updated CtxC to {version}.")?,
-            None => writeln!(out, "Updated CtxC.")?,
+            Some(version) => writeln!(
+                out,
+                "{} {}.",
+                palette.good("Updated CtxC to"),
+                palette.number(version)
+            )?,
+            None => writeln!(out, "{}", palette.good("Updated CtxC."))?,
         }
         writeln!(out)?;
-        writeln!(out, "Source:     {}", self.source.display())?;
-        writeln!(out, "Branch:     {}/{}", self.remote, self.branch)?;
         writeln!(
             out,
-            "Commit:     {} -> {}{}",
-            self.from,
-            self.to,
+            "{} {}",
+            palette.label("Source:    "),
+            palette.path(self.source.display())
+        )?;
+        writeln!(
+            out,
+            "{} {}/{}",
+            palette.label("Branch:    "),
+            self.remote,
+            self.branch
+        )?;
+        writeln!(
+            out,
+            "{} {} {} {}{}",
+            palette.label("Commit:    "),
+            palette.reference(&self.from),
+            palette.dim("->"),
+            palette.reference(&self.to),
             match self.behind {
-                0 => "  (rebuilt, nothing new)".to_string(),
-                behind => format!("  ({})", commits(behind)),
+                0 => format!("  {}", palette.dim("(rebuilt, nothing new)")),
+                behind => format!("  {}", palette.dim(format!("({})", commits(behind)))),
             }
         )?;
         if let Some(dashboard) = self.dashboard.describe() {
-            writeln!(out, "Dashboard:  {dashboard}")?;
+            writeln!(out, "{} {dashboard}", palette.label("Dashboard: "))?;
         }
         if let Some(path) = &self.installed {
-            writeln!(out, "Installed:  {}", path.display())?;
+            writeln!(
+                out,
+                "{} {}",
+                palette.label("Installed: "),
+                palette.path(path.display())
+            )?;
         }
         match self.daemon_restarted {
-            Some(true) => writeln!(out, "Daemon:     restarted")?,
+            Some(true) => writeln!(
+                out,
+                "{} {}",
+                palette.label("Daemon:    "),
+                palette.good("restarted")
+            )?,
             Some(false) => {
-                writeln!(out, "Daemon:     stopped, and did not come back")?;
+                writeln!(
+                    out,
+                    "{} {}",
+                    palette.label("Daemon:    "),
+                    palette.warn("stopped, and did not come back")
+                )?;
                 writeln!(out)?;
-                writeln!(out, "Start it again with `ctxc start --detach`.")?;
+                writeln!(
+                    out,
+                    "Start it again with {}.",
+                    palette.command("`ctxc start --detach`")
+                )?;
             }
             None => {}
         }

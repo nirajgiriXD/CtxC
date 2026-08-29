@@ -24,6 +24,7 @@ use ctxc_store::SqliteEmbeddingStore;
 use crate::app::App;
 use crate::error::CliError;
 use crate::output::{human_percent, Printer, Render};
+use crate::style::Palette;
 
 /// What `ctxc find --similar` found.
 #[derive(Debug, Serialize)]
@@ -35,28 +36,47 @@ pub struct SimilarReport {
 }
 
 impl Render for SimilarReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         if self.found.files.is_empty() {
-            writeln!(out, "Nothing in {} is close to that.", self.root)?;
+            writeln!(
+                out,
+                "Nothing in {} is close to that.",
+                palette.path(&self.root)
+            )?;
             writeln!(out)?;
-            return writeln!(out, "Note: {}.", self.found.fidelity.caveat());
+            return writeln!(
+                out,
+                "{} {}.",
+                palette.label("Note:"),
+                palette.dim(self.found.fidelity.caveat())
+            );
         }
 
         for (path, similarity) in &self.found.files {
-            writeln!(out, "  {:<52}{}", path, human_percent(*similarity as f64))?;
+            writeln!(
+                out,
+                "  {:<52}{}",
+                palette.path(path),
+                palette.number(human_percent(*similarity as f64))
+            )?;
         }
 
         writeln!(out)?;
         writeln!(
             out,
             "{} result(s), scored by the `{}` embedder.",
-            self.found.files.len(),
-            self.found.provider
+            palette.number(self.found.files.len()),
+            palette.symbol(&self.found.provider)
         )?;
         // Shown every time, not only when results are thin. A person who reads
         // "94%" and thinks it means "says the same thing" will trust the wrong
         // file.
-        writeln!(out, "Note: {}.", self.found.fidelity.caveat())
+        writeln!(
+            out,
+            "{} {}.",
+            palette.label("Note:"),
+            palette.dim(self.found.fidelity.caveat())
+        )
     }
 }
 

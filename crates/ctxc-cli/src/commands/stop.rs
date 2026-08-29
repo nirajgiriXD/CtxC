@@ -24,6 +24,7 @@ use ctxc_daemon::DaemonError;
 
 use crate::app::App;
 use crate::output::{Printer, Render};
+use crate::style::Palette;
 use crate::terminate::{self, Outcome};
 
 /// One process this command ended.
@@ -71,25 +72,41 @@ impl StopReport {
 }
 
 impl Render for StopReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         match (self.daemon, self.stale_lock) {
-            (Some(pid), true) => writeln!(out, "Cleared a lockfile left behind (pid {pid})")?,
-            (Some(pid), false) => writeln!(out, "Daemon stopped (pid {pid})")?,
-            (None, _) => writeln!(out, "Daemon:     not running")?,
+            (Some(pid), true) => writeln!(
+                out,
+                "{} {}",
+                palette.warn("Cleared a lockfile left behind"),
+                palette.dim(format!("(pid {pid})"))
+            )?,
+            (Some(pid), false) => writeln!(
+                out,
+                "{} {}",
+                palette.good("Daemon stopped"),
+                palette.dim(format!("(pid {pid})"))
+            )?,
+            (None, _) => writeln!(
+                out,
+                "{} {}",
+                palette.label("Daemon:    "),
+                palette.dim("not running")
+            )?,
         }
 
         if !self.terminated.is_empty() {
             writeln!(
                 out,
                 "Stopped {} other CtxC process(es)",
-                self.terminated.len()
+                palette.number(self.terminated.len())
             )?;
             for process in &self.terminated {
                 writeln!(
                     out,
-                    "            pid {}{}",
-                    process.pid,
-                    described(&process.command)
+                    "            {} {}{}",
+                    palette.label("pid"),
+                    palette.number(process.pid),
+                    palette.dim(described(&process.command))
                 )?;
             }
         }
@@ -98,16 +115,19 @@ impl Render for StopReport {
             writeln!(
                 out,
                 "Cleared {} record(s) of processes already gone",
-                self.cleared
+                palette.number(self.cleared)
             )?;
         }
 
+        // A process that would not stop is the one line here worth finding
+        // again after the command has scrolled away.
         for process in &self.survived {
             writeln!(
                 out,
-                "Could not stop pid {}{}: {}",
-                process.pid,
-                described(&process.command),
+                "{} {}{}: {}",
+                palette.bad("Could not stop pid"),
+                palette.number(process.pid),
+                palette.dim(described(&process.command)),
                 process.reason
             )?;
         }

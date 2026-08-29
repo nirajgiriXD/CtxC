@@ -11,6 +11,7 @@ use ctxc_store::{ContextStore, Database, IndexStore, SqliteContextStore, SqliteI
 
 use crate::app::App;
 use crate::output::{human_bytes, Printer, Render};
+use crate::style::Palette;
 
 /// What this installation looks like right now.
 #[derive(Debug, Serialize)]
@@ -128,55 +129,113 @@ impl StatusReport {
 }
 
 impl Render for StatusReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "CtxC {}", self.version)?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(
+            out,
+            "{} {}",
+            palette.heading("CtxC"),
+            palette.number(&self.version)
+        )?;
         writeln!(out)?;
-        writeln!(out, "Platform:   {} ({})", self.os, self.arch)?;
         writeln!(
             out,
-            "Config:     {}{}",
-            self.config_file.display(),
+            "{} {} {}",
+            palette.label("Platform:  "),
+            self.os,
+            palette.dim(format!("({})", self.arch))
+        )?;
+        writeln!(
+            out,
+            "{} {}{}",
+            palette.label("Config:    "),
+            palette.path(self.config_file.display()),
             if self.config_file_exists {
-                ""
+                String::new()
             } else {
-                "  (not created, using defaults)"
+                format!("  {}", palette.dim("(not created, using defaults)"))
             }
         )?;
-        writeln!(out, "Data:       {}", self.data_dir.display())?;
-        writeln!(out, "Cache:      {}", self.cache_dir.display())?;
         writeln!(
             out,
-            "Database:   {}  (schema {}{})",
-            self.database.path.display(),
-            self.database.schema_version,
-            match self.database.size_bytes {
-                Some(bytes) => format!(", {}", human_bytes(bytes)),
-                None => String::new(),
-            }
+            "{} {}",
+            palette.label("Data:      "),
+            palette.path(self.data_dir.display())
         )?;
-        writeln!(out, "Contexts:   {}", self.database.contexts)?;
-        writeln!(out, "Indexed:    {} project(s)", self.indexed_roots)?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Cache:     "),
+            palette.path(self.cache_dir.display())
+        )?;
+        writeln!(
+            out,
+            "{} {}  {}",
+            palette.label("Database:  "),
+            palette.path(self.database.path.display()),
+            palette.dim(format!(
+                "(schema {}{})",
+                self.database.schema_version,
+                match self.database.size_bytes {
+                    Some(bytes) => format!(", {}", human_bytes(bytes)),
+                    None => String::new(),
+                }
+            ))
+        )?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Contexts:  "),
+            palette.number(self.database.contexts)
+        )?;
+        writeln!(
+            out,
+            "{} {} {}",
+            palette.label("Indexed:   "),
+            palette.number(self.indexed_roots),
+            palette.dim("project(s)")
+        )?;
         match (&self.daemon.running, &self.daemon.stale) {
             (true, _) => {
                 writeln!(
                     out,
-                    "Daemon:     running (pid {}, port {})",
-                    self.daemon.pid.unwrap_or_default(),
-                    self.daemon.port.unwrap_or_default()
+                    "{} {} {}",
+                    palette.label("Daemon:    "),
+                    palette.good("running"),
+                    palette.dim(format!(
+                        "(pid {}, port {})",
+                        self.daemon.pid.unwrap_or_default(),
+                        self.daemon.port.unwrap_or_default()
+                    ))
                 )?;
                 writeln!(
                     out,
-                    "Watching:   {} project(s){}",
-                    self.daemon.watching,
+                    "{} {} {}{}",
+                    palette.label("Watching:  "),
+                    palette.number(self.daemon.watching),
+                    palette.dim("project(s)"),
                     match self.daemon.degraded {
                         0 => String::new(),
-                        degraded => format!("  ({degraded} scanning instead)"),
+                        degraded => format!(
+                            "  {}",
+                            palette.warn(format!("({degraded} scanning instead)"))
+                        ),
                     }
                 )
             }
 
-            (false, true) => writeln!(out, "Daemon:     not running (a lockfile was left behind)"),
-            (false, false) => writeln!(out, "Daemon:     not running"),
+            (false, true) => writeln!(
+                out,
+                "{} {} {}",
+                palette.label("Daemon:    "),
+                palette.warn("not running"),
+                palette.dim("(a lockfile was left behind)")
+            ),
+            (false, false) => writeln!(
+                out,
+                "{} {}",
+                palette.label("Daemon:    "),
+                palette.dim("not running")
+            ),
         }
     }
 }

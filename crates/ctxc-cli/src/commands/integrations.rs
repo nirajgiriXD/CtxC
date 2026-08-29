@@ -18,6 +18,7 @@ use ctxc_integrations::{AgentIntegration, IntegrationStatus, Removal};
 use crate::app::App;
 use crate::cli::IntegrationAction;
 use crate::output::{Printer, Render};
+use crate::style::Palette;
 
 /// What CtxC knows about every integration for this project.
 #[derive(Debug, Serialize)]
@@ -28,17 +29,27 @@ pub struct IntegrationsReport {
 }
 
 impl Render for IntegrationsReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "{}", self.root)?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(out, "{}", palette.path(&self.root))?;
         writeln!(out)?;
 
         for status in &self.integrations {
+            // Installed, detected, or neither: the middle column is the answer
+            // this command exists to give, so it carries the colour.
+            let summary = status.summary();
+            let summary = if status.installed {
+                palette.good(summary)
+            } else if status.detected {
+                palette.warn(summary)
+            } else {
+                palette.dim(summary)
+            };
             writeln!(
                 out,
                 "  {:<14}{:<14}{}",
-                status.name,
-                status.summary(),
-                relative(&self.root, &status.path)
+                palette.heading(&status.name),
+                summary,
+                palette.path(relative(&self.root, &status.path))
             )?;
         }
 
@@ -58,14 +69,20 @@ impl Render for IntegrationsReport {
             writeln!(out, "No agents detected here.")?;
             writeln!(
                 out,
-                "Install one anyway with `ctxc config agents install <NAME>`."
+                "Install one anyway with {}.",
+                palette.command("`ctxc config agents install <NAME>`")
             )?;
         } else if available > 0 {
             writeln!(
                 out,
-                "{available} detected agent(s) have no CtxC guidance yet."
+                "{} detected agent(s) have no CtxC guidance yet.",
+                palette.warn(available)
             )?;
-            writeln!(out, "Add it with `ctxc config agents install --detected`.")?;
+            writeln!(
+                out,
+                "Add it with {}.",
+                palette.command("`ctxc config agents install --detected`")
+            )?;
         }
         Ok(())
     }
@@ -93,7 +110,7 @@ pub struct AppliedChange {
 }
 
 impl Render for ChangeReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         if self.changes.is_empty() {
             return writeln!(out, "No agents detected here, so nothing was changed.");
         }
@@ -102,7 +119,9 @@ impl Render for ChangeReport {
             writeln!(
                 out,
                 "  {:<14}{:<14}{}",
-                change.name, change.outcome, change.path
+                palette.heading(&change.name),
+                palette.good(&change.outcome),
+                palette.path(&change.path)
             )?;
         }
 
@@ -112,7 +131,9 @@ impl Render for ChangeReport {
             writeln!(out, "is nothing for an agent to search yet.")?;
             writeln!(
                 out,
-                "Run `ctxc project add .` or `ctxc project index .` first."
+                "Run {} or {} first.",
+                palette.command("`ctxc project add .`"),
+                palette.command("`ctxc project index .`")
             )?;
         }
         Ok(())

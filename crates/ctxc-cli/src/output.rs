@@ -25,8 +25,12 @@ pub enum OutputFormat {
 }
 
 /// A command result that can render itself for a person.
+///
+/// The palette arrives by value rather than being read from a global, so a
+/// report rendered onto stderr can be coloured on its own terms, and a test
+/// that captures into a buffer gets plain text without having to say so.
 pub trait Render: Serialize {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()>;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()>;
 }
 
 /// Writes command results in the selected format.
@@ -56,6 +60,11 @@ impl<W: Write> Printer<W> {
             palette: crate::style::PLAIN,
             stderr_palette: crate::style::PLAIN,
         }
+    }
+
+    /// The palette for stderr, where summaries and hints go.
+    pub fn stderr_palette(&self) -> Palette {
+        self.stderr_palette
     }
 
     /// The format this printer was built with.
@@ -101,7 +110,7 @@ impl<W: Write> Printer<W> {
     pub fn emit<T: Render>(&mut self, value: &T) -> io::Result<()> {
         match self.format {
             OutputFormat::Human => {
-                value.render_human(&mut self.writer)?;
+                value.render_human(&mut self.writer, self.palette)?;
             }
             OutputFormat::Json => {
                 let json = serde_json::to_string_pretty(value).map_err(io::Error::other)?;
@@ -188,8 +197,13 @@ mod tests {
     }
 
     impl Render for Sample {
-        fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-            writeln!(out, "{}: {}", self.name, self.count)
+        fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+            writeln!(
+                out,
+                "{}: {}",
+                palette.label(self.name),
+                palette.number(self.count)
+            )
         }
     }
 

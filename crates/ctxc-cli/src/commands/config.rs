@@ -13,6 +13,7 @@ use crate::app::App;
 use crate::cli::ConfigAction;
 use crate::error::CliError;
 use crate::output::{Printer, Render};
+use crate::style::Palette;
 
 /// The effective configuration, plus where it came from.
 #[derive(Debug, Serialize)]
@@ -23,7 +24,9 @@ pub struct ConfigReport {
 }
 
 impl Render for ConfigReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, _palette: Palette) -> io::Result<()> {
+        // Left exactly as written: this is TOML someone will copy into a file,
+        // and escape sequences in it would be pasted along with the rest.
         write!(out, "{}", self.toml)
     }
 }
@@ -35,8 +38,12 @@ pub struct LayersReport {
 }
 
 impl Render for LayersReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "Configuration layers (lowest precedence first)")?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(
+            out,
+            "{}",
+            palette.heading("Configuration layers (lowest precedence first)")
+        )?;
         writeln!(out)?;
         for layer in &self.layers {
             let name = match layer.kind {
@@ -46,11 +53,15 @@ impl Render for LayersReport {
                 LayerKind::Overrides => "command line",
             };
             let location = match &layer.path {
-                Some(path) => path.display().to_string(),
-                None => "-".into(),
+                Some(path) => palette.path(path.display().to_string()),
+                None => palette.dim("-".to_string()),
             };
-            let state = if layer.applied { "" } else { "  (not present)" };
-            writeln!(out, "  {name:<13}{location}{state}")?;
+            let state = if layer.applied {
+                String::new()
+            } else {
+                format!("  {}", palette.dim("(not present)"))
+            };
+            writeln!(out, "  {:<13}{location}{state}", palette.label(name))?;
         }
         Ok(())
     }
@@ -64,8 +75,8 @@ pub struct InitReport {
 }
 
 impl Render for InitReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "wrote {}", self.path.display())
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(out, "wrote {}", palette.path(self.path.display()))
     }
 }
 

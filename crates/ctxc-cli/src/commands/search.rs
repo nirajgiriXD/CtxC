@@ -28,33 +28,55 @@ use crate::app::App;
 use crate::cli::SearchOptions;
 use crate::error::CliError;
 use crate::output::{human_count, human_percent, OutputFormat, Printer, Render};
+use crate::style::Palette;
 
 impl Render for Retrieval {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         if self.files.is_empty() {
             return writeln!(
                 out,
                 "Nothing indexed under {} matches {:?}.",
-                self.root, self.query
+                palette.path(&self.root),
+                self.query
             );
         }
 
+        // Where a match is, what it defines, and what it actually says are
+        // three different questions. Each gets its own role, so the eye can
+        // pick the file headings out of a long result without reading them.
         for file in &self.files {
             let location = match file.line {
-                Some(line) => format!("{}:{}", file.path, line),
-                None => file.path.clone(),
+                Some(line) => format!(
+                    "{}{}{}",
+                    palette.path(&file.path),
+                    palette.dim(":"),
+                    palette.dim(line)
+                ),
+                None => palette.path(&file.path).to_string(),
             };
-            writeln!(out, "{location}  ({:.2})", file.score)?;
+            let score = palette.dim(format!("({:.2})", file.score));
+            writeln!(out, "{location}  {score}")?;
 
             if !file.matched_symbols.is_empty() {
-                writeln!(out, "  defines  {}", file.matched_symbols.join(", "))?;
+                writeln!(
+                    out,
+                    "  {}  {}",
+                    palette.label("defines"),
+                    palette.symbol(file.matched_symbols.join(", "))
+                )?;
             }
             if let ctxc_retrieval::Reason::Related { to, hops } = &file.reason {
-                writeln!(out, "  related  {to} ({hops} hop away)")?;
+                writeln!(
+                    out,
+                    "  {}  {} {}",
+                    palette.label("related"),
+                    palette.path(to),
+                    palette.dim(format!("({hops} hop away)"))
+                )?;
             }
             if let Some(snippet) = &file.snippet {
                 for line in snippet.lines() {
-                    writeln!(out, "  | {line}")?;
+                    writeln!(out, "  {} {line}", palette.dim("|"))?;
                 }
             }
             writeln!(out)?;
@@ -62,9 +84,11 @@ impl Render for Retrieval {
 
         writeln!(
             out,
-            "{} of {} candidates shown",
-            human_count(self.files.len() as u32),
-            human_count(self.considered as u32)
+            "{} {} {} {}",
+            palette.number(human_count(self.files.len() as u32)),
+            palette.dim("of"),
+            palette.number(human_count(self.considered as u32)),
+            palette.dim("candidates shown")
         )
     }
 }
@@ -86,28 +110,38 @@ pub struct CompiledContextReport {
 }
 
 impl Render for CompiledContextReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "Query:            {}", self.query)?;
-        writeln!(out, "Files selected:   {}", self.selected.len())?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(out, "{} {}", palette.label("Query:           "), self.query)?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Files selected:  "),
+            palette.number(self.selected.len())
+        )?;
         for path in &self.selected {
-            writeln!(out, "  {path}")?;
+            writeln!(out, "  {}", palette.path(path))?;
         }
         writeln!(out)?;
         writeln!(
             out,
-            "Original tokens:  {}",
-            human_count(self.original_tokens)
+            "{} {}",
+            palette.label("Original tokens: "),
+            palette.number(human_count(self.original_tokens))
         )?;
         writeln!(
             out,
-            "Optimized tokens: {}  of {} budget",
-            human_count(self.optimized_tokens),
-            human_count(self.budget)
+            "{} {}  {} {} {}",
+            palette.label("Optimized tokens:"),
+            palette.number(human_count(self.optimized_tokens)),
+            palette.dim("of"),
+            palette.number(human_count(self.budget)),
+            palette.dim("budget")
         )?;
         writeln!(
             out,
-            "Reduction:        {}",
-            human_percent(self.reduction_ratio)
+            "{} {}",
+            palette.label("Reduction:       "),
+            palette.good(human_percent(self.reduction_ratio))
         )
     }
 }
@@ -124,14 +158,31 @@ pub struct RetrieveReport {
 }
 
 impl Render for RetrieveReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "Reference:    {}", self.reference)?;
-        writeln!(out, "Source:       {}", self.source)?;
-        writeln!(out, "Type:         {}", self.content_type)?;
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         writeln!(
             out,
-            "Size:         {} bytes",
-            human_count(self.bytes as u32)
+            "{} {}",
+            palette.label("Reference:   "),
+            palette.reference(&self.reference)
+        )?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Source:      "),
+            palette.path(&self.source)
+        )?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Type:        "),
+            self.content_type
+        )?;
+        writeln!(
+            out,
+            "{} {} {}",
+            palette.label("Size:        "),
+            palette.number(human_count(self.bytes as u32)),
+            palette.dim("bytes")
         )
     }
 }
@@ -283,7 +334,7 @@ fn compile_selection<W: Write>(
     match printer.format() {
         OutputFormat::Human => {
             printer.write_content(&report.content)?;
-            report.render_human(&mut io::stderr())?;
+            report.render_human(&mut io::stderr(), printer.stderr_palette())?;
         }
         OutputFormat::Json | OutputFormat::Jsonl => printer.emit(&report)?,
         OutputFormat::Quiet => printer.write_content(&report.content)?,
@@ -322,7 +373,7 @@ pub fn retrieve<W: Write>(app: &App, reference: &str, printer: &mut Printer<W>) 
     match printer.format() {
         OutputFormat::Human => {
             printer.write_content(&report.content)?;
-            report.render_human(&mut io::stderr())?;
+            report.render_human(&mut io::stderr(), printer.stderr_palette())?;
         }
         OutputFormat::Json | OutputFormat::Jsonl => printer.emit(&report)?,
         OutputFormat::Quiet => printer.write_content(&report.content)?,

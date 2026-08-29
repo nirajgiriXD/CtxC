@@ -17,6 +17,7 @@ use ctxc_store::{Database, SqliteMetricsStore, SqliteProjectStore};
 use crate::app::App;
 use crate::cli::MetricsOptions;
 use crate::output::{human_percent, human_total, Printer, Render};
+use crate::style::Palette;
 
 /// Everything `ctxc status --metrics` reports, in one document.
 #[derive(Debug, serde::Serialize)]
@@ -35,10 +36,20 @@ pub struct MetricsReport {
 }
 
 impl Render for MetricsReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         match &self.project {
-            Some(project) => writeln!(out, "{project} — last {} days", self.days)?,
-            None => writeln!(out, "CtxC metrics — last {} days", self.days)?,
+            Some(project) => writeln!(
+                out,
+                "{} {}",
+                palette.path(project),
+                palette.dim(format!("— last {} days", self.days))
+            )?,
+            None => writeln!(
+                out,
+                "{} {}",
+                palette.heading("CtxC metrics"),
+                palette.dim(format!("— last {} days", self.days))
+            )?,
         }
         writeln!(out)?;
 
@@ -50,120 +61,164 @@ impl Render for MetricsReport {
         }
 
         let summary = &self.summary;
-        writeln!(
-            out,
-            "Operations        {}",
-            human_total(summary.operations as i64)
-        )?;
-        writeln!(
-            out,
-            "Tokens in         {}",
-            human_total(summary.input_tokens)
-        )?;
-        writeln!(
-            out,
-            "Tokens out        {}",
-            human_total(summary.output_tokens)
-        )?;
-        writeln!(
-            out,
-            "Tokens saved      {}",
-            human_total(summary.tokens_saved)
-        )?;
-        writeln!(
-            out,
-            "Reduction         {}{}",
-            human_percent(summary.reduction_ratio),
-            if summary.estimated {
-                "  (token counts are estimates)"
-            } else {
-                ""
+        {
+            let mut field = |name: &str, value: String| -> io::Result<()> {
+                writeln!(out, "{}{value}", palette.label(format!("{name:<18}")))
+            };
+            field(
+                "Operations",
+                palette
+                    .number(human_total(summary.operations as i64))
+                    .to_string(),
+            )?;
+            field(
+                "Tokens in",
+                palette
+                    .number(human_total(summary.input_tokens))
+                    .to_string(),
+            )?;
+            field(
+                "Tokens out",
+                palette
+                    .number(human_total(summary.output_tokens))
+                    .to_string(),
+            )?;
+            field(
+                "Tokens saved",
+                palette.good(human_total(summary.tokens_saved)).to_string(),
+            )?;
+            field(
+                "Reduction",
+                format!(
+                    "{}{}",
+                    palette.good(human_percent(summary.reduction_ratio)),
+                    if summary.estimated {
+                        format!("  {}", palette.dim("(token counts are estimates)"))
+                    } else {
+                        String::new()
+                    }
+                ),
+            )?;
+
+            if let Some(average) = summary.average_duration_ms {
+                field(
+                    "Latency",
+                    format!(
+                        "{} {}, {} {}",
+                        palette.number(format!("{average:.0} ms")),
+                        palette.dim("average"),
+                        palette.number(format!("{} ms", human_total(summary.slowest_duration_ms))),
+                        palette.dim("slowest")
+                    ),
+                )?;
             }
-        )?;
+            if let Some(rate) = summary.cache_hit_rate {
+                field(
+                    "Cache hits",
+                    palette.number(human_percent(rate)).to_string(),
+                )?;
+            }
+            if summary.errors > 0 || summary.degradations > 0 {
+                field(
+                    "Errors",
+                    format!(
+                        "{} {}, {} {}",
+                        palette.bad(human_total(summary.errors as i64)),
+                        palette.dim("failed"),
+                        palette.warn(human_total(summary.degradations as i64)),
+                        palette.dim("degraded")
+                    ),
+                )?;
+            }
 
-        if let Some(average) = summary.average_duration_ms {
-            writeln!(
-                out,
-                "Latency           {average:.0} ms average, {} ms slowest",
-                human_total(summary.slowest_duration_ms)
-            )?;
-        }
-        if let Some(rate) = summary.cache_hit_rate {
-            writeln!(out, "Cache hits        {}", human_percent(rate))?;
-        }
-        if summary.errors > 0 || summary.degradations > 0 {
-            writeln!(
-                out,
-                "Errors            {} failed, {} degraded",
-                human_total(summary.errors as i64),
-                human_total(summary.degradations as i64)
-            )?;
-        }
-
-        match &summary.estimated_cost_saved {
-            Some(cost) => writeln!(
-                out,
-                "Cost saved        {}  (estimate, {} rates)",
-                cost.to_display(),
-                cost.model
-            )?,
-            None => writeln!(
-                out,
-                "Cost saved        not estimated  (set metrics.cost_per_million_input_tokens)"
-            )?,
+            match &summary.estimated_cost_saved {
+                Some(cost) => field(
+                    "Cost saved",
+                    format!(
+                        "{}  {}",
+                        palette.good(cost.to_display()),
+                        palette.dim(format!("(estimate, {} rates)", cost.model))
+                    ),
+                )?,
+                None => field(
+                    "Cost saved",
+                    format!(
+                        "{}  {}",
+                        palette.dim("not estimated"),
+                        palette.dim("(set metrics.cost_per_million_input_tokens)")
+                    ),
+                )?,
+            }
         }
 
         let savings = &summary.savings_by_stage;
         if savings.total() != 0 {
             writeln!(out)?;
-            writeln!(out, "Savings by stage:")?;
+            writeln!(out, "{}", palette.heading("Savings by stage:"))?;
             for (stage, tokens) in savings.labelled() {
                 if tokens != 0 {
-                    writeln!(out, "  {stage:<16}{}", human_total(tokens))?;
+                    let total = human_total(tokens);
+                    let total = if tokens < 0 {
+                        palette.warn(total)
+                    } else {
+                        palette.good(total)
+                    };
+                    writeln!(out, "  {:<16}{total}", palette.label(stage))?;
                 }
             }
         }
 
         if let Some(breakdown) = &self.breakdown {
             writeln!(out)?;
-            writeln!(out, "By operation:")?;
+            writeln!(out, "{}", palette.heading("By operation:"))?;
             for row in &breakdown.by_operation {
                 writeln!(
                     out,
-                    "  {:<14}{:>9} runs  {:>14} saved  {:>7}",
-                    row.operation.as_str(),
-                    human_total(row.operations as i64),
-                    human_total(row.tokens_saved),
-                    human_percent(row.reduction_ratio),
+                    "  {:<14}{:>9} {}  {:>14} {}  {:>7}",
+                    palette.symbol(row.operation.as_str()),
+                    palette.number(human_total(row.operations as i64)),
+                    palette.dim("runs"),
+                    palette.good(human_total(row.tokens_saved)),
+                    palette.dim("saved"),
+                    palette.good(human_percent(row.reduction_ratio)),
                 )?;
             }
         }
 
         if let Some(series) = &self.timeseries {
             writeln!(out)?;
-            writeln!(out, "By {}:", series.granularity.as_str())?;
+            writeln!(
+                out,
+                "{}",
+                palette.heading(format!("By {}:", series.granularity.as_str()))
+            )?;
             for point in &series.points {
                 writeln!(
                     out,
-                    "  {}  {:>9} runs  {:>14} saved",
-                    point.bucket_start.to_rfc3339(),
-                    human_total(point.operations as i64),
-                    human_total(point.tokens_saved),
+                    "  {}  {:>9} {}  {:>14} {}",
+                    palette.dim(point.bucket_start.to_rfc3339()),
+                    palette.number(human_total(point.operations as i64)),
+                    palette.dim("runs"),
+                    palette.good(human_total(point.tokens_saved)),
+                    palette.dim("saved"),
                 )?;
             }
         }
 
         if !self.activity.is_empty() {
             writeln!(out)?;
-            writeln!(out, "Recent activity:")?;
+            writeln!(out, "{}", palette.heading("Recent activity:"))?;
+            // When, what, to which input, and what it was worth. The source is
+            // the column a reader scans for, so it is the one painted as a path.
             for event in &self.activity {
                 writeln!(
                     out,
-                    "  {}  {:<10}{:<28}{:>12} saved",
-                    event.recorded_at.to_rfc3339(),
-                    event.operation.as_str(),
-                    truncate(&event.source, 26),
-                    human_total(event.tokens_saved()),
+                    "  {}  {:<10}{:<28}{:>12} {}",
+                    palette.dim(event.recorded_at.to_rfc3339()),
+                    palette.symbol(event.operation.as_str()),
+                    palette.path(truncate(&event.source, 26)),
+                    palette.good(human_total(event.tokens_saved())),
+                    palette.dim("saved"),
                 )?;
             }
         }

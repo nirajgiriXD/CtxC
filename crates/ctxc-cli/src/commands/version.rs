@@ -8,6 +8,7 @@ use serde::Serialize;
 use ctxc_core::platform::Os;
 
 use crate::output::{Printer, Render};
+use crate::style::Palette;
 
 /// Build identity of this binary.
 #[derive(Debug, Serialize)]
@@ -33,10 +34,26 @@ impl VersionReport {
 }
 
 impl Render for VersionReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
-        writeln!(out, "{} {}", self.name, self.version)?;
-        writeln!(out, "platform: {} ({})", self.os, self.arch)?;
-        writeln!(out, "schema:   {}", self.schema_version)
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
+        writeln!(
+            out,
+            "{} {}",
+            palette.heading(&self.name),
+            palette.number(&self.version)
+        )?;
+        writeln!(
+            out,
+            "{} {} {}",
+            palette.label("platform:"),
+            self.os,
+            palette.dim(format!("({})", self.arch))
+        )?;
+        writeln!(
+            out,
+            "{}   {}",
+            palette.label("schema:"),
+            palette.number(self.schema_version)
+        )
     }
 }
 

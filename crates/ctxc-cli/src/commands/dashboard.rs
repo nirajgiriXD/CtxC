@@ -21,6 +21,7 @@ use ctxc_daemon::DaemonState;
 use crate::app::App;
 use crate::error::CliError;
 use crate::output::{human_bytes, Printer, Render};
+use crate::style::Palette;
 
 /// Where the dashboard is, and whether it was opened.
 #[derive(Debug, Serialize)]
@@ -38,7 +39,7 @@ pub struct DashboardReport {
 }
 
 impl Render for DashboardReport {
-    fn render_human(&self, out: &mut dyn Write) -> io::Result<()> {
+    fn render_human(&self, out: &mut dyn Write, palette: Palette) -> io::Result<()> {
         if !self.bundled {
             writeln!(out, "This build of CtxC does not include the dashboard.")?;
             writeln!(out)?;
@@ -50,15 +51,34 @@ impl Render for DashboardReport {
         }
 
         if self.started_daemon {
-            writeln!(out, "Started the daemon on port {}.", self.port)?;
+            writeln!(
+                out,
+                "{} {}.",
+                palette.good("Started the daemon on port"),
+                palette.number(self.port)
+            )?;
         }
-        writeln!(out, "Dashboard:  {}", self.url)?;
-        writeln!(out, "Size:       {}", human_bytes(self.bytes as u64))?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Dashboard: "),
+            palette.reference(&self.url)
+        )?;
+        writeln!(
+            out,
+            "{} {}",
+            palette.label("Size:      "),
+            palette.number(human_bytes(self.bytes as u64))
+        )?;
 
         if !self.opened {
             writeln!(out)?;
-            writeln!(out, "Open that URL in a browser. It carries the access")?;
-            writeln!(out, "token, so keep it to yourself.")?;
+            writeln!(
+                out,
+                "{}",
+                palette.dim("Open that URL in a browser. It carries the access")
+            )?;
+            writeln!(out, "{}", palette.dim("token, so keep it to yourself."))?;
         }
         Ok(())
     }
