@@ -715,6 +715,58 @@ fn ansi_escapes_are_stripped_from_terminal_output() {
 }
 
 #[test]
+fn a_pipe_gets_no_colour_unless_it_is_asked_for() {
+    let sandbox = Sandbox::new("colour-pipe");
+
+    // The test harness always pipes, so the default here is what a redirect or
+    // a `| grep` sees, and it has to stay plain.
+    let piped = sandbox.run(&["version"]);
+    assert_success(&piped);
+    assert!(!stdout(&piped).contains('\u{1b}'), "{}", stdout(&piped));
+
+    let never = sandbox.run(&["version", "--color", "never"]);
+    assert_success(&never);
+    assert_eq!(stdout(&never), stdout(&piped));
+
+    let always = sandbox.run(&["version", "--color", "always"]);
+    assert_success(&always);
+    assert!(stdout(&always).contains('\u{1b}'), "{}", stdout(&always));
+}
+
+#[test]
+fn colour_never_changes_a_document() {
+    let sandbox = Sandbox::new("colour-json");
+
+    let plain = sandbox.run(&["version", "--format", "json"]);
+    let colored = sandbox.run(&["version", "--format", "json", "--color", "always"]);
+    assert_success(&plain);
+    assert_success(&colored);
+    assert_eq!(stdout(&plain), stdout(&colored));
+}
+
+#[test]
+fn no_color_switches_colour_off_and_the_flag_switches_it_back_on() {
+    let sandbox = Sandbox::new("colour-env");
+
+    let off = sandbox
+        .command(&["version", "--color", "auto"])
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run ctxc");
+    assert_success(&off);
+    assert!(!stdout(&off).contains('\u{1b}'), "{}", stdout(&off));
+
+    // An explicit flag is a decision, and beats the environment either way.
+    let on = sandbox
+        .command(&["version", "--color", "always"])
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run ctxc");
+    assert_success(&on);
+    assert!(stdout(&on).contains('\u{1b}'), "{}", stdout(&on));
+}
+
+#[test]
 fn piped_input_can_be_attributed_to_the_command_that_produced_it() {
     let sandbox = Sandbox::new("stdin-from");
     let status = "On branch main\n\
