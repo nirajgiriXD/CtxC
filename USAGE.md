@@ -41,7 +41,7 @@ Every command, one line each. Details are in the
 | `ctxc completions <SHELL>` | Print a tab-completion script |
 
 Global flags, on every command: `--format human|json|jsonl|quiet`,
-`--config <PATH>`, `--verbose`, `--debug`.
+`--color auto|always|never`, `--config <PATH>`, `--verbose`, `--debug`.
 
 ---
 
@@ -64,6 +64,7 @@ Global flags, on every command: `--format human|json|jsonl|quiet`,
 - [Watch mode](#watch-mode)
 - [Storage and the database](#storage-and-the-database)
 - [Output formats](#output-formats)
+- [Colour](#colour)
 - [HTTP API](#http-api)
 - [Logging and debugging](#logging-and-debugging)
 - [Troubleshooting](TROUBLESHOOTING.md)
@@ -1832,6 +1833,52 @@ content goes:
 | `quiet` | the optimized content | — |
 
 That keeps `ctxc optimize file | agent` correct in every format.
+
+---
+
+## Colour
+
+Human output is coloured, so the parts of a line can be told apart without
+reading it. Colour marks what a thing *is*, and the same role looks the same
+in every command:
+
+| Role | Where it appears |
+|------|------------------|
+| Path | Files, directories, and project roots. |
+| Symbol | Function and type names, languages, optimizers, operations. |
+| Label | The field name to the left of a value. |
+| Number | Counts, sizes, and durations. |
+| Reference | A `ctxc://` reference, a commit, or an id worth copying. |
+| Command | Something to run. |
+| Good / warn / bad | A saving, something to look at, something broken. |
+
+So in a search result the file heading, the symbols it defines, and the lines
+quoted from it are three different colours, and the quoted content is the only
+part left unpainted — it is the code, and it should look like the code.
+
+`--color` decides when to use any of it:
+
+| Value | Behavior |
+|-------|----------|
+| `auto` | Colour when the stream is a terminal that supports it. The default. |
+| `always` | Colour even when the output is a file or a pipe. |
+| `never` | No colour anywhere. |
+
+```bash
+ctxc doctor --color never
+ctxc status --color always | less -R
+```
+
+`auto` also honours the environment: `NO_COLOR` switches colour off,
+`CLICOLOR_FORCE` switches it on through a pipe. On Windows the console is put
+into virtual-terminal mode first, so ANSI works in `cmd.exe` as well as in
+Windows Terminal.
+
+stdout and stderr are decided separately, so `ctxc optimize build.log > out.txt`
+in a terminal writes plain content to the file and still colours the summary.
+
+Colour is never part of a document. `--format json`, `--format jsonl` and a
+redirected stdout carry the same bytes they always did.
 
 ---
 
